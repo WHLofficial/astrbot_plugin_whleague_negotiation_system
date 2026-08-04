@@ -56,6 +56,16 @@ class NegotiationService:
             page = max(1, int(str(raw).strip()))
         return page, (page - 1) * page_size
 
+    def _tier_thresholds(self) -> tuple[float, float, float]:
+        raw = str(self._cfg.get("tier_thresholds", "0.25,0.6,0.9"))
+        try:
+            parts = [float(p) for p in raw.split(",")]
+            if len(parts) == 3 and 0 < parts[0] < parts[1] < parts[2] < 1:
+                return (parts[0], parts[1], parts[2])
+        except ValueError:
+            pass
+        return (0.25, 0.6, 0.9)
+
     # ─── teams ──────────────────────────────────────────────
 
     async def create_team(self, name: str, created_by: str) -> dict:
@@ -404,7 +414,7 @@ class NegotiationService:
                 "result": "fail",
                 "attempt_no": attempt_no,
                 "remaining": max_attempts - attempt_no,
-                "tier": success_tier(p),
+                "tier": success_tier(p, self._tier_thresholds()),
             }
 
         try:

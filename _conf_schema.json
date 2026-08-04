@@ -23,6 +23,12 @@
     "type": "float",
     "default": 0.95
   },
+  "tier_thresholds": {
+    "description": "判定分档参数",
+    "hint": "判定分档内部参数（三个升序小数值，逗号分隔），请勿修改。",
+    "type": "string",
+    "default": "0.25,0.6,0.9"
+  },
   "growth_age": {
     "description": "成长年龄",
     "hint": "年龄小于等于该值的球员视为可成长球员；赛季推进时可减一或恢复。",

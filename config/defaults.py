@@ -103,6 +103,24 @@ _INT_LOWER_BOUNDS = {
 _TIME_KEYS = ("backup_time",)
 
 
+def _validate_tier_thresholds(raw: str) -> str:
+    parts = [p.strip() for p in str(raw).split(",")]
+    if len(parts) != 3:
+        raise ValueError("tier_thresholds 需为 3 个逗号分隔的小数")
+    values = []
+    for p in parts:
+        try:
+            v = float(p)
+        except ValueError:
+            raise ValueError(f"tier_thresholds 含非法数字: {p}")
+        if not (0.0 < v < 1.0):
+            raise ValueError("tier_thresholds 每个值需在 (0,1) 之间")
+        values.append(v)
+    if not (values[0] < values[1] < values[2]):
+        raise ValueError("tier_thresholds 需严格升序")
+    return ",".join(f"{v:g}" for v in values)
+
+
 def parse_group_list(raw):
     """将配置中的群白名单解析为列表，兼容 JSON 数组或逗号分隔文本。"""
     if isinstance(raw, (list, tuple)):
@@ -125,6 +143,9 @@ def validate_and_cast(key: str, raw: str):
     """校验并转换管理员通过 /谈判设置 传入的配置值。"""
     if key not in DEFAULT_CONFIG:
         raise ValueError(f"未知配置项: {key}")
+
+    if key == "tier_thresholds":
+        return _validate_tier_thresholds(raw)
 
     if key in _LIST_KEYS:
         return parse_group_list(raw)

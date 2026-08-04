@@ -76,11 +76,12 @@ def success_rate(offered: float, expected: float):
     return 1.0 / (1.0 + math.exp(-9.0 * ((ratio - 0.6) / 0.4 - 0.5)))
 
 
-def success_tier(p: float):
-    if p >= 0.9:
+def success_tier(p: float, thresholds=(0.25, 0.6, 0.9)):
+    lo, mid, hi = thresholds
+    if p >= hi:
         return "🎉 几乎必成"
-    if p >= 0.6:
+    if p >= mid:
         return "😄 机会较大"
-    if p >= 0.25:
+    if p >= lo:
         return "🤔 有一定机会"
     return "🥶 希望渺茫"
