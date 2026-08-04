@@ -144,6 +144,15 @@ def test_success_tier():
     assert success_tier(0.24) != success_tier(0.25)
 
 
+def test_success_tier_custom():
+    t = (0.3, 0.5, 0.8)
+    assert "🥶" in success_tier(0.29, t)
+    assert "🤔" in success_tier(0.3, t)
+    assert "😄" in success_tier(0.5, t)
+    assert "🎉" in success_tier(0.8, t)
+    assert "🎉" in success_tier(0.99, t)
+
+
 def run_all():
     tests = [
         test_rating_level,
@@ -159,6 +168,7 @@ def run_all():
         test_attempt_expected_edges,
         test_fuzz_1000,
         test_success_tier,
+        test_success_tier_custom,
     ]
     for t in tests:
         t()

@@ -95,6 +95,17 @@ def test_auth_code_charset():
         assert not any(c in code for c in "0O1lI"), code
 
 
+def test_tier_thresholds():
+    assert validate_and_cast("tier_thresholds", "0.25,0.6,0.9") == "0.25,0.6,0.9"
+    assert validate_and_cast("tier_thresholds", "0.1, 0.5, 0.95") == "0.1,0.5,0.95"
+    for bad in ("0.25,0.6", "a,0.6,0.9", "0.9,0.6,0.25", "0,0.6,0.9", "1.5,0.6,0.9", ""):
+        try:
+            validate_and_cast("tier_thresholds", bad)
+            assert False, f"accepted {bad!r}"
+        except ValueError:
+            pass
+
+
 def run_all():
     tests = [
         test_defaults_shape,
@@ -105,6 +116,7 @@ def run_all():
         test_parse_float_2dp,
         test_format_wage,
         test_auth_code_charset,
+        test_tier_thresholds,
     ]
     for t in tests:
         t()
