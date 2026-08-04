@@ -43,6 +43,13 @@ class FakePlugin:
         self.import_service = env.import_service
         self.config_cache = env.cfg
         self.rate_limiter = env.limiter
+        self.persisted = []
+
+    async def persist_config(self, key, value):
+        self.persisted.append((key, value))
+
+    async def reschedule_cron_jobs(self):
+        pass
 
 
 async def _collect(agen):
@@ -233,6 +240,67 @@ async def test_player_offer_fail_tier(env: TestEnv):
     assert "🥶" in texts[0]
 
 
+async def test_close_window_flow(env: TestEnv):
+    plugin = FakePlugin(env)
+    handler = AdminHandler(plugin)
+    await env.service.close_window_cases()
+    _, _, case = await _setup_player_env(env, team="关闭队", qq="94001")
+
+    # 无 token：发起并生成验证码
+    event = FakeEvent("admin1", "关闭窗口案例")
+    texts = await _collect(handler.close_window_cases(event))
+    assert "请回复 /关闭窗口案例" in texts[0]
+    import re
+
+    token = re.search(r"/关闭窗口案例 (\d+)", texts[0]).group(1)
+
+    # token 确认 → 成功（回归 int 返回崩溃）
+    event2 = FakeEvent("admin1", f"关闭窗口案例 {token}")
+    texts2 = await _collect(handler.close_window_cases(event2))
+    assert "✅ 已关闭窗口案例 1 个" in texts2[0]
+    case_row = await env.dao.get_case_by_id(case["case_id"])
+    assert case_row["status"] == "cancelled"
+
+    # 无活跃案例
+    event3 = FakeEvent("admin1", "关闭窗口案例")
+    texts3 = await _collect(handler.close_window_cases(event3))
+    assert "无需关闭" in texts3[0]
+
+    # 无待确认操作
+    event4 = FakeEvent("admin1", "关闭窗口案例 123456")
+    texts4 = await _collect(handler.close_window_cases(event4))
+    assert "没有待确认的关闭操作" in texts4[0]
+
+    # token 错误（先补一个活跃案例）
+    await env.import_service.import_rows([("596", "Smoke2", "")], "admin1")
+    await env.service.create_case("596", "关闭队", 20, 85, 88, 15, "admin1")
+    event5 = FakeEvent("admin1", "关闭窗口案例")
+    texts5 = await _collect(handler.close_window_cases(event5))
+    token5 = re.search(r"/关闭窗口案例 (\d+)", texts5[0]).group(1)
+    event6 = FakeEvent("admin1", f"关闭窗口案例 0{token5[1:]}")
+    texts6 = await _collect(handler.close_window_cases(event6))
+    assert "验证码错误" in texts6[0]
+
+
+async def test_set_config_persists(env: TestEnv):
+    plugin = FakePlugin(env)
+    handler = AdminHandler(plugin)
+    event = FakeEvent("admin1", "谈判设置 growth_age 26")
+    texts = await _collect(handler.set_config(event))
+    assert "已更新配置 growth_age = 26" in texts[0]
+    # 回归：persist_config 必须被 await（异步记录器未执行即失败）
+    assert ("growth_age", 26) in plugin.persisted
+    assert plugin.config_cache["growth_age"] == 26
+    # 非法值
+    event2 = FakeEvent("admin1", "谈判设置 growth_age abc")
+    texts2 = await _collect(handler.set_config(event2))
+    assert "参数错误" in texts2[0]
+    # wage_min > wage_max 交叉校验
+    event3 = FakeEvent("admin1", "谈判设置 wage_min 30")
+    texts3 = await _collect(handler.set_config(event3))
+    assert "wage_min 不能大于 wage_max" in texts3[0]
+
+
 def run_all():
     async def main():
         env = TestEnv()
@@ -266,8 +334,12 @@ def run_all():
             print("  PASS test_player_contracts_and_status")
             await test_player_offer_fail_tier(env)
             print("  PASS test_player_offer_fail_tier")
+            await test_close_window_flow(env)
+            print("  PASS test_close_window_flow")
+            await test_set_config_persists(env)
+            print("  PASS test_set_config_persists")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 14
+    return 16
