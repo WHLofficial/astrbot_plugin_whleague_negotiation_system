@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Plugin internal design document (confidential)
+DESIGN.md
+
+# Plugin runtime data
+*.db
+*.db-wal
+*.db-shm
+imports/
+backup/

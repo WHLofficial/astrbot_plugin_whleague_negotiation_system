@@ -1,14 +1,97 @@
-# astrbot-plugin-helloworld
+# 谈判系统插件
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+球员合同谈判系统：玩家认证（球队绑定）、球员库 Excel 导入、工资谈判、转会窗口与赛季推进。与积分系统相互独立。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+> 详细设计见 `DESIGN.md`（内部文档，不入库）。
 
-# Supports
+## 功能
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+- **球队与认证**：管理员创建球队、生成认证码（8 位、1 次有效、可指定时长）；玩家凭码自助绑定球队；一 QQ 一队；多人可绑；仅管理员可解绑
+- **球员库**：Excel/CSV 批量导入（固定两列：球员ID | 外文名），覆盖更新
+- **工资谈判**：设定违约金 → 生成预期工资 → 最多 3 次递增报价；成功签约，3 次失败自动按预期工资成约
+- **合同**：无年限；窗口内可见；新约覆盖旧约；可再谈
+- **赛季/转会窗口**：窗口跨赛季连续推进；推进前须清空活跃案例；赛季推进可选择成长年龄减一或恢复
+- **数据备份**：每日定时快照（VACUUM INTO），保留最近 N 份
+
+## 安装
+
+依赖：`aiosqlite`、`openpyxl`（见 `requirements.txt`，AstrBot 自动安装）。
+
+## 指令
+
+**管理端**
+
+| 指令 | 说明 |
+|---|---|
+| `/创建球队 <队名>` | 创建球队 |
+| `/生成认证码 <队名> [时长小时]` | 生成认证码（限认证码群白名单） |
+| `/认证码列表 [队名]` | 查看认证码 |
+| `/解绑 <队名> <QQ>` | 解绑玩家（有进行中谈判时禁止） |
+| `/创建谈判 <球员UID> <队名> <年龄> <CA> <PA> <旧违约金>` | 创建谈判案例 |
+| `/谈判列表 [窗口序号] [页码]` | 查看案例（可查历史窗口） |
+| `/取消谈判 <案例ID>` | 取消案例 |
+| `/关闭窗口案例 [验证码]` | 批量取消当前窗口活跃案例（二次确认） |
+| `/进入下个窗口` | 推进转会窗口（有活跃案例则阻止） |
+| `/进入下个赛季 [0]` | 推进赛季（默认成长年龄 -1；`0` 恢复至 25） |
+| `/导入球员文件 <文件名>` | 从导入目录导入球员表 |
+| `/确认导入球员 <文件名>` | 确认导入（QQ 发文件后使用） |
+| `/导入列表 [页码]` | 查看导入目录文件 |
+| `/谈判设置 <配置项> <值>` | 修改配置 |
+| `/谈判查看配置` | 查看配置 |
+| `/谈判添加管理 <QQ>` / `/谈判删除管理 <QQ>` | 管理管理员名单 |
+
+**玩家端**
+
+| 指令 | 说明 |
+|---|---|
+| `/绑定球队 <队名> <认证码>` | 认证绑定球队 |
+| `/我的球队` | 查看绑定信息 |
+| `/待谈判 [页码]` | 查看自己球队当前窗口待谈判球员 |
+| `/开始谈判 <案例ID> <新违约金>` | 开始/重设违约金，展示预期工资 |
+| `/报价 <案例ID> <工资>` | 报价（须递增，最多 3 次） |
+| `/我的合同 [页码]` | 查看当前窗口有效合同 |
+| `/赛季状态` | 查看赛季/窗口/成长年龄 |
+
+## 球员库导入
+
+两种方式：
+
+1. **QQ 发文件**：管理员在群内发送 `.xlsx`/`.csv`（两列：球员ID | 外文名）→ 自动下载并预览 → 回复 `/确认导入球员 <文件名>` 执行
+2. **目录放置**：文件放入插件数据目录 `imports/` 后回复 `/导入球员文件 <文件名>`（可在 `/谈判设置` 关闭确认）
+
+导入按球员 ID 覆盖更新；错误行跳过并汇报。导入目录文件保留，超过上限（默认 50）自动清理最旧。
+
+## 配置
+
+常用配置（`/谈判查看配置` 查看，`/谈判设置 <键> <值>` 修改，也可在 AstrBot WebUI 修改）：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `growth_age` | 25 | 成长年龄 |
+| `negotiation_max_attempts` | 3 | 最大报价次数 |
+| `wage_min` / `wage_max` | 0.01 / 20.00 | 报价上下限（M/半赛季） |
+| `auth_code_default_expire_hours` | 24 | 认证码默认有效期 |
+| `auth_code_attempt_limit` / `auth_code_lock_minutes` | 5 / 10 | 绑定失败限流 |
+| `group_whitelist` | [] | 群白名单（空=全群） |
+| `auth_code_group_whitelist` | [] | 可生成认证码的群白名单（空=跟随群白名单） |
+| `import_col_uid` / `import_col_foreign_name` | 1 / 2 | 导入列位 |
+| `import_require_confirm` | true | 目录导入是否需确认 |
+| `import_max_rows` | 50000 | 单文件行数上限 |
+| `import_max_files` | 50 | 导入目录文件上限 |
+| `backup_enabled` / `backup_time` / `backup_keep_count` | true / 04:00 / 10 | 自动备份 |
+| `wage_unit` / `fee_unit` | M/半赛季 / M | 展示单位 |
+
+另有工资计算相关参数（键名见 `/谈判查看配置`）与输入校验边界（CA/PA/年龄/违约金上限）等配置项。
+
+## 数据与备份
+
+- 独立数据库 `negotiation_system.db`（WAL 模式），位于插件数据目录
+- 自动备份：每日 `backup_time`（默认 04:00）生成 `backup/` 目录快照，保留最近 `backup_keep_count` 份
+
+## 测试
+
+```bash
+python -m tests.run_all
+```
+
+测试仅使用临时数据库，不触碰生产数据。

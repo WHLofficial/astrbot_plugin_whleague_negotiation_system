@@ -1,0 +1,182 @@
+{
+  "wage_param_a": {
+    "description": "工资计算参数 A",
+    "hint": "工资计算内部参数，请勿修改。",
+    "type": "float",
+    "default": 0.02
+  },
+  "wage_param_b": {
+    "description": "工资计算参数 B",
+    "hint": "工资计算内部参数，请勿修改。",
+    "type": "float",
+    "default": 1.9
+  },
+  "wage_param_c": {
+    "description": "工资计算参数 C",
+    "hint": "工资计算内部参数，请勿修改。",
+    "type": "float",
+    "default": 0.45
+  },
+  "attempt_decay_multiplier": {
+    "description": "报价判定参数",
+    "hint": "报价判定内部参数，请勿修改。",
+    "type": "float",
+    "default": 0.95
+  },
+  "growth_age": {
+    "description": "成长年龄",
+    "hint": "年龄小于等于该值的球员视为可成长球员；赛季推进时可减一或恢复。",
+    "type": "int",
+    "default": 25
+  },
+  "negotiation_max_attempts": {
+    "description": "最大报价次数",
+    "hint": "每个谈判会话最多允许的报价次数。",
+    "type": "int",
+    "default": 3
+  },
+  "wage_min": {
+    "description": "报价下限",
+    "hint": "报价允许的最小工资（2 位小数）。",
+    "type": "float",
+    "default": 0.01
+  },
+  "wage_max": {
+    "description": "报价上限",
+    "hint": "报价允许的最大工资（2 位小数）。",
+    "type": "float",
+    "default": 20.00
+  },
+  "auth_code_default_expire_hours": {
+    "description": "认证码默认有效期",
+    "hint": "生成认证码时未指定时长时的默认有效小时数。",
+    "type": "int",
+    "default": 24
+  },
+  "auth_code_attempt_limit": {
+    "description": "绑定失败限次",
+    "hint": "绑定尝试失败达到该次数后锁定绑定功能。",
+    "type": "int",
+    "default": 5
+  },
+  "auth_code_lock_minutes": {
+    "description": "绑定锁定时长",
+    "hint": "绑定失败限次触发后锁定的分钟数。",
+    "type": "int",
+    "default": 10
+  },
+  "group_whitelist": {
+    "description": "群白名单",
+    "hint": "允许使用本插件的群 ID 列表（JSON 数组或逗号分隔），为空表示所有群可用。",
+    "type": "list",
+    "default": []
+  },
+  "auth_code_group_whitelist": {
+    "description": "认证码生成群白名单",
+    "hint": "允许调用生成认证码指令的群 ID 列表，为空表示跟随群白名单。",
+    "type": "list",
+    "default": []
+  },
+  "import_col_uid": {
+    "description": "导入球员ID列位",
+    "hint": "Excel/CSV 中球员 ID 所在列（1 起），0 表示无此列。",
+    "type": "int",
+    "default": 1
+  },
+  "import_col_foreign_name": {
+    "description": "导入外文名列位",
+    "hint": "Excel/CSV 中外文名所在列（1 起），0 表示无此列。",
+    "type": "int",
+    "default": 2
+  },
+  "import_col_chinese_name": {
+    "description": "导入中文名列位",
+    "hint": "Excel/CSV 中中文名所在列（1 起），0 表示无此列。",
+    "type": "int",
+    "default": 0
+  },
+  "import_require_confirm": {
+    "description": "导入需确认",
+    "hint": "目录导入是否需要二次确认；群内发送文件的导入始终需要确认。",
+    "type": "bool",
+    "default": true
+  },
+  "import_max_rows": {
+    "description": "单文件最大行数",
+    "hint": "单次导入允许的最大数据行数。",
+    "type": "int",
+    "default": 50000
+  },
+  "import_batch_size": {
+    "description": "导入分批行数",
+    "hint": "导入事务每批写入的行数，越小越降低锁占用时间。",
+    "type": "int",
+    "default": 5000
+  },
+  "import_max_file_size_mb": {
+    "description": "导入文件大小上限",
+    "hint": "允许导入的文件最大体积（MB）。",
+    "type": "int",
+    "default": 50
+  },
+  "import_max_files": {
+    "description": "导入目录文件上限",
+    "hint": "imports 目录最多保留的文件数，超限自动删除最旧文件。",
+    "type": "int",
+    "default": 50
+  },
+  "ca_max": {
+    "description": "CA/PA 上限",
+    "hint": "创建谈判时 CA/PA 允许的最大值。",
+    "type": "int",
+    "default": 99
+  },
+  "age_min": {
+    "description": "年龄下限",
+    "hint": "创建谈判时年龄允许的最小值。",
+    "type": "int",
+    "default": 14
+  },
+  "age_max": {
+    "description": "年龄上限",
+    "hint": "创建谈判时年龄允许的最大值。",
+    "type": "int",
+    "default": 50
+  },
+  "fee_max": {
+    "description": "违约金上限",
+    "hint": "创建谈判时旧违约金允许的最大值。",
+    "type": "int",
+    "default": 300
+  },
+  "backup_enabled": {
+    "description": "自动备份",
+    "hint": "是否启用每日自动备份。",
+    "type": "bool",
+    "default": true
+  },
+  "backup_time": {
+    "description": "备份时间",
+    "hint": "每日自动备份时间（HH:MM，宿主本地时区）。",
+    "type": "string",
+    "default": "04:00"
+  },
+  "backup_keep_count": {
+    "description": "备份保留份数",
+    "hint": "备份目录最多保留的备份文件数，超限自动删除最旧。",
+    "type": "int",
+    "default": 30
+  },
+  "wage_unit": {
+    "description": "工资单位",
+    "hint": "工资展示单位文案。",
+    "type": "string",
+    "default": "M/半赛季"
+  },
+  "fee_unit": {
+    "description": "违约金单位",
+    "hint": "违约金展示单位文案。",
+    "type": "string",
+    "default": "M"
+  }
+}
