@@ -2,6 +2,7 @@
 
 import asyncio
 import types
+from unittest import mock
 
 from .common import TestEnv
 
@@ -219,6 +220,19 @@ async def test_player_contracts_and_status(env: TestEnv):
     assert "转会窗口" in texts2[0]
 
 
+async def test_player_offer_fail_tier(env: TestEnv):
+    plugin, handler, case = await _setup_player_env(env, team="冒烟队F", qq="93006")
+    await env.service.start_negotiation(case["case_id"], "93006", 18)
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.999,
+    ):
+        event = FakeEvent("93006", f"报价 {case['case_id']} 0.01")
+        texts = await _collect(handler.offer(event))
+    assert "把握" in texts[0]
+    assert "🥶" in texts[0]
+
+
 def run_all():
     async def main():
         env = TestEnv()
@@ -250,8 +264,10 @@ def run_all():
             print("  PASS test_player_offer_success")
             await test_player_contracts_and_status(env)
             print("  PASS test_player_contracts_and_status")
+            await test_player_offer_fail_tier(env)
+            print("  PASS test_player_offer_fail_tier")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 13
+    return 14

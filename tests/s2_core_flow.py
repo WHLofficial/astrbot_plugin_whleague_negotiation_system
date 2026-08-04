@@ -113,6 +113,8 @@ async def test_full_flow(env: TestEnv):
     for w in (0.01, 0.02, 0.03):
         r = await svc.offer_wage(case2["case_id"], "10001", w)
         assert r["result"] in ("fail", "forced")
+        if r["result"] == "fail":
+            assert r["tier"] in ("🥶 希望渺茫", "🤔 有一定机会", "😄 机会较大", "🎉 几乎必成")
     contracts2 = await dao.list_contracts(1, None)
     forced = [c for c in contracts2 if c["source"] == "forced"]
     assert len(forced) == 1

@@ -7,6 +7,7 @@ from astrbot_plugin_whleague_negotiation_system.services.formula import (
     rating_level,
     release_fee_bounds,
     success_rate,
+    success_tier,
 )
 
 
@@ -131,6 +132,18 @@ def test_fuzz_1000():
         assert rating_level(ca) in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
 
+def test_success_tier():
+    assert "🥶" in success_tier(0.0)
+    assert "🥶" in success_tier(0.24)
+    assert "🤔" in success_tier(0.25)
+    assert "🤔" in success_tier(0.59)
+    assert "😄" in success_tier(0.6)
+    assert "😄" in success_tier(0.89)
+    assert "🎉" in success_tier(0.9)
+    assert "🎉" in success_tier(1.0)
+    assert success_tier(0.24) != success_tier(0.25)
+
+
 def run_all():
     tests = [
         test_rating_level,
@@ -145,6 +158,7 @@ def run_all():
         test_success_rate_extremes,
         test_attempt_expected_edges,
         test_fuzz_1000,
+        test_success_tier,
     ]
     for t in tests:
         t()
