@@ -1,3 +1,4 @@
+﻿import asyncio
 from collections.abc import AsyncGenerator
 
 from astrbot.api import logger
@@ -70,6 +71,18 @@ class NegotiationSystemPlugin(Star):
             cache = dict(DEFAULT_CONFIG)
             for key in _LIST_KEYS:
                 cache[key] = parse_group_list(cache[key])
+            # 无 WebUI 托管配置时，从 plugin_config 表读回已持久化的变更
+            rows = await self.dao.get_all_config()
+            for row in rows:
+                key = row["key"]
+                if key not in DEFAULT_CONFIG or key == "schema_version":
+                    continue
+                try:
+                    from .config.defaults import validate_and_cast
+
+                    cache[key] = validate_and_cast(key, row["value"])
+                except ValueError:
+                    continue
             return cache
         cache = {}
         for key, default in DEFAULT_CONFIG.items():
@@ -340,11 +353,22 @@ class NegotiationSystemPlugin(Star):
             return
         for comp in file_comps:
             try:
+                from pathlib import Path as _Path
+
+                if _Path(comp.name or "").suffix.lower() not in (".xlsx", ".csv"):
+                    continue
                 file_path = await comp.get_file()
                 if not file_path:
                     continue
+                try:
+                    if hasattr(event, "track_temporary_local_file"):
+                        event.track_temporary_local_file(file_path)
+                except Exception:
+                    pass
                 target = self.import_service.save_uploaded(file_path, comp.name or "")
-                data, errors, skipped = self.import_service.parse_rows(target)
+                data, errors, skipped = await asyncio.to_thread(
+                    self.import_service.parse_rows, target
+                )
                 lines = [
                     f"📄 收到文件 {target.name}: 可导入 {len(data)} 行（跳过 {skipped} 行）"
                 ]
@@ -369,3 +393,4 @@ class NegotiationSystemPlugin(Star):
         if hasattr(self, "db"):
             await self.db.close()
         logger.info("Negotiation system plugin terminated.")
+

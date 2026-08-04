@@ -1,3 +1,4 @@
+﻿import asyncio
 import random
 import time
 from collections.abc import AsyncGenerator
@@ -121,7 +122,7 @@ class AdminHandler:
         result = await self._run(
             event, self._plugin.negotiation_service.list_codes(team_name)
         )
-        if "error" in result:
+        if isinstance(result, dict) and "error" in result:
             yield event.plain_result(result["error"])
             return
         if not result:
@@ -154,8 +155,20 @@ class AdminHandler:
             return
         target = parts[1]
         qq = parse_qq_arg(target)
-        if qq is None and target.lstrip("@").isdigit():
-            qq = target.lstrip("@")
+        if qq is None:
+            # 先按队名精确匹配（防「纯数字/含括号队名」被误判为 QQ），再兜底 QQ 解析
+            team = await self._plugin.dao.get_team_by_name(target)
+            if team is not None:
+                result = await self._run(
+                    event, self._plugin.negotiation_service.unbind_team(target)
+                )
+                if "error" in result:
+                    yield event.plain_result(result["error"])
+                    return
+                yield event.plain_result(f"✅ 已解绑 {result['qq']} 与球队「{result['team_name']}」")
+                return
+            if target.lstrip("@").isdigit():
+                qq = target.lstrip("@")
         if qq is not None:
             result = await self._run(
                 event, self._plugin.negotiation_service.unbind_qq(qq)
@@ -201,7 +214,8 @@ class AdminHandler:
             return
         ref = ""
         if result.get("ref_fee") is not None:
-            ref = f"\n参考: 该球员上次合同违约金 {result['ref_fee']}"
+            fee_unit = str(self._plugin.config_cache.get("fee_unit", "M"))
+            ref = f"\n参考: 该球员上次合同违约金 {result['ref_fee']} {fee_unit}"
         yield event.plain_result(
             f"✅ 已创建谈判案例 #{result['case_id']}: "
             f"{result['player']} → {result['team']}（窗口 {result['window_seq']}）{ref}"
@@ -299,7 +313,7 @@ class AdminHandler:
             result = await self._run(
                 event, self._plugin.negotiation_service.close_window_cases()
             )
-            if "error" in result:
+            if isinstance(result, dict) and "error" in result:
                 yield event.plain_result(result["error"])
                 return
             yield event.plain_result(f"✅ 已关闭窗口案例 {result} 个")
@@ -408,7 +422,7 @@ class AdminHandler:
         except (FileNotFoundError, ValueError) as e:
             yield event.plain_result(str(e))
             return
-        data, errors, skipped = self._plugin.import_service.parse_rows(file_path)
+        data, errors, skipped = await asyncio.to_thread(self._plugin.import_service.parse_rows, file_path)
         require_confirm = self._plugin.config_cache.get("import_require_confirm", True)
         if require_confirm:
             lines = [f"📄 {file_path.name}: 可导入 {len(data)} 行（跳过 {skipped} 行）"]
@@ -436,7 +450,7 @@ class AdminHandler:
         except (FileNotFoundError, ValueError) as e:
             yield event.plain_result(str(e))
             return
-        data, errors, skipped = self._plugin.import_service.parse_rows(file_path)
+        data, errors, skipped = await asyncio.to_thread(self._plugin.import_service.parse_rows, file_path)
         result = await self._do_import(event, file_path, data, errors)
         yield event.plain_result(result)
 
@@ -464,22 +478,26 @@ class AdminHandler:
             async for r in self._deny(event):
                 yield r
             return
-        parts = event.get_message_str().split()
-        page_raw = parts[1] if len(parts) >= 2 else None
-        page = 1
-        if page_raw and page_raw.isdigit():
-            page = max(1, int(page_raw))
-        files = self._plugin.import_service.list_files()
-        total = len(files)
-        start = (page - 1) * 10
-        shown = files[start : start + 10]
-        if not shown:
-            yield event.plain_result("导入目录暂无文件")
-            return
-        lines = [f"📁 导入目录文件 (第{page}页, 共{total}个)"]
-        for f in shown:
-            lines.append(f"· {f.name} ({f.stat().st_size // 1024} KB)")
-        yield event.plain_result("\n".join(lines))
+        try:
+            parts = event.get_message_str().split()
+            page_raw = parts[1] if len(parts) >= 2 else None
+            page = 1
+            if page_raw and page_raw.isdigit():
+                page = max(1, int(page_raw))
+            files = self._plugin.import_service.list_files()
+            total = len(files)
+            start = (page - 1) * 10
+            shown = files[start : start + 10]
+            if not shown:
+                yield event.plain_result("导入目录暂无文件")
+                return
+            lines = [f"📁 导入目录文件 (第{page}页, 共{total}个)"]
+            for f in shown:
+                lines.append(f"· {f.name} ({f.stat().st_size // 1024} KB)")
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            logger.error(f"Import list error: {e}")
+            yield event.plain_result("查询失败，已记录错误")
 
     # ─── config / admins ────────────────────────────────────
 
@@ -501,8 +519,10 @@ class AdminHandler:
             yield event.plain_result(f"参数错误: {e}")
             return
         new_cache = dict(self._plugin.config_cache)
+        import_col_keys = ("import_col_uid", "import_col_foreign_name", "import_col_chinese_name")
+        old_import_cols = {k: new_cache.get(k) for k in import_col_keys}
         new_cache[key] = parsed
-        if "wage_min" in (key,):
+        if key == "wage_min":
             if parsed > new_cache.get("wage_max", 20.0):
                 yield event.plain_result("wage_min 不能大于 wage_max")
                 return
@@ -510,8 +530,21 @@ class AdminHandler:
             if parsed < new_cache.get("wage_min", 0.01):
                 yield event.plain_result("wage_max 不能小于 wage_min")
                 return
+        if key == "age_min":
+            if parsed > new_cache.get("age_max", 50):
+                yield event.plain_result("age_min 不能大于 age_max")
+                return
+        if key == "age_max":
+            if parsed < new_cache.get("age_min", 14):
+                yield event.plain_result("age_max 不能小于 age_min")
+                return
+        if key in import_col_keys:
+            others = [v for k2, v in old_import_cols.items() if k2 != key]
+            if parsed and parsed in others:
+                yield event.plain_result("导入列位不能与其他列位重复")
+                return
         self._plugin.config_cache[key] = parsed
-        self._plugin.persist_config(key, parsed)
+        await self._plugin.persist_config(key, parsed)
         if key == "backup_time" or key == "backup_enabled":
             await self._plugin.reschedule_cron_jobs()
         yield event.plain_result(f"已更新配置 {key} = {parsed}")
@@ -570,3 +603,4 @@ class AdminHandler:
             return
         await self._plugin.dao.remove_admin(qq)
         yield event.plain_result(f"已删除 {qq} 的管理员权限")
+

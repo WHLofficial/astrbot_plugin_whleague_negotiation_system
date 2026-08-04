@@ -45,7 +45,11 @@ class NegotiationService:
         if len(self._bind_fails) <= _BIND_FAIL_PRUNE_THRESHOLD:
             return
         cutoff = now - _BIND_FAIL_WINDOW
-        stale = [qq for qq, f in self._bind_fails.items() if f[2] < cutoff]
+        stale = [
+            qq
+            for qq, f in self._bind_fails.items()
+            if f[1] <= now and f[2] < cutoff
+        ]
         for qq in stale:
             del self._bind_fails[qq]
 
@@ -181,9 +185,24 @@ class NegotiationService:
         binding = await self._dao.get_binding_by_qq(qq)
         if not binding:
             raise NegotiationError(f"QQ {qq} 未绑定任何球队")
-        if await self._dao.has_active_session(qq):
-            raise NegotiationError("该玩家持有进行中的谈判会话，禁止解绑")
-        await self._dao.remove_binding(qq)
+
+        async def _tx(conn):
+            async with conn.execute(
+                "SELECT 1 FROM negotiation_sessions s "
+                "JOIN negotiation_cases c ON c.id=s.case_id "
+                "WHERE s.qq=? AND c.status='negotiating' LIMIT 1",
+                (qq,),
+            ) as cur:
+                if await cur.fetchone():
+                    raise NegotiationError("该玩家持有进行中的谈判会话，禁止解绑")
+            await conn.execute("DELETE FROM team_bindings WHERE qq=?", (qq,))
+
+        try:
+            await self._db.execute_transaction(_tx)
+        except NegotiationError:
+            raise
+        except Exception:
+            raise NegotiationError("解绑失败，请稍后再试")
         return {"team_name": binding["team_name"], "qq": qq}
 
     async def unbind_team(self, team_name: str) -> dict:
@@ -199,9 +218,24 @@ class NegotiationService:
                 f"该队有 {len(bindings)} 人绑定，请指定要解绑的 QQ"
             )
         qq = bindings[0]["qq"]
-        if await self._dao.has_active_session(qq):
-            raise NegotiationError("该玩家持有进行中的谈判会话，禁止解绑")
-        await self._dao.remove_binding(qq)
+
+        async def _tx(conn):
+            async with conn.execute(
+                "SELECT 1 FROM negotiation_sessions s "
+                "JOIN negotiation_cases c ON c.id=s.case_id "
+                "WHERE s.qq=? AND c.status='negotiating' LIMIT 1",
+                (qq,),
+            ) as cur:
+                if await cur.fetchone():
+                    raise NegotiationError("该玩家持有进行中的谈判会话，禁止解绑")
+            await conn.execute("DELETE FROM team_bindings WHERE qq=?", (qq,))
+
+        try:
+            await self._db.execute_transaction(_tx)
+        except NegotiationError:
+            raise
+        except Exception:
+            raise NegotiationError("解绑失败，请稍后再试")
         return {"team_name": team["name"], "qq": qq}
 
     # ─── cases ──────────────────────────────────────────────
@@ -338,7 +372,14 @@ class NegotiationService:
             else:
                 await self._dao.update_session_release_fee(conn, session["id"], release_fee, ew)
 
-        await self._db.execute_transaction(_tx)
+        try:
+            await self._db.execute_transaction(_tx)
+        except NegotiationError:
+            raise
+        except Exception as e:
+            if "UNIQUE" in str(e) or "session" in str(e).lower():
+                raise NegotiationError("该案例正在被其他成员操作，请稍后重试")
+            raise
         return {"case_id": case_id, "expected_wage": ew, "release_fee": release_fee}
 
     async def offer_wage(self, case_id: int, qq: str, wage: float) -> dict:
@@ -467,6 +508,14 @@ class NegotiationService:
                 "WHERE window_seq=? AND status IN ('pending','negotiating')",
                 (cur_state["window_seq"],),
             )
+            await conn.execute(
+                "UPDATE negotiation_sessions SET status='cancelled', "
+                "finished_at=datetime('now','localtime') "
+                "WHERE status='negotiating' AND case_id IN "
+                "(SELECT id FROM negotiation_cases WHERE window_seq=? "
+                " AND status='cancelled')",
+                (cur_state["window_seq"],),
+            )
             return row["n"]
 
         return await self._db.execute_transaction(_tx)
@@ -584,7 +633,9 @@ class NegotiationService:
         rows = await self._dao.list_cases(
             state["window_seq"], offset, _PAGE_SIZE, team_id=binding["team_id"], status="pending"
         )
-        total = await self._dao.count_cases_in_window(state["window_seq"], binding["team_id"])
+        total = await self._dao.count_cases_in_window(
+            state["window_seq"], binding["team_id"], status="pending"
+        )
         return {
             "team": binding["team_name"],
             "window_seq": state["window_seq"],

@@ -218,9 +218,22 @@ class NegotiationDAO:
         )
 
     async def count_cases_in_window(
-        self, window_seq: int, team_id: int | None = None
+        self, window_seq: int, team_id: int | None = None, status: str | None = None
     ) -> int:
-        if team_id is None:
+        if status is not None:
+            if team_id is None:
+                row = await self._db.fetchone(
+                    "SELECT COUNT(*) AS n FROM negotiation_cases "
+                    "WHERE window_seq=? AND status=?",
+                    (window_seq, status),
+                )
+            else:
+                row = await self._db.fetchone(
+                    "SELECT COUNT(*) AS n FROM negotiation_cases "
+                    "WHERE window_seq=? AND team_id=? AND status=?",
+                    (window_seq, team_id, status),
+                )
+        elif team_id is None:
             row = await self._db.fetchone(
                 "SELECT COUNT(*) AS n FROM negotiation_cases WHERE window_seq=?",
                 (window_seq,),
@@ -484,6 +497,9 @@ class NegotiationDAO:
         return row["name"] if row else ""
 
     # ─── plugin config ──────────────────────────────────────
+
+    async def get_all_config(self) -> list:
+        return await self._db.fetchall("SELECT * FROM plugin_config")
 
     async def set_config(self, key: str, value: str) -> None:
         await self._db.execute(

@@ -87,6 +87,7 @@ class DatabaseManager:
                     return cur
                 except aiosqlite.OperationalError as e:
                     if "database is locked" in str(e) and attempt < _RETRY_COUNT - 1:
+                        await conn.rollback()
                         await asyncio.sleep(_RETRY_DELAY * (attempt + 1))
                         continue
                     raise

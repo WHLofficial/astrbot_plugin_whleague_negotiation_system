@@ -25,7 +25,7 @@ class BackupService:
             raise RuntimeError("Database file not found")
 
         ts = time.strftime("%Y%m%d_%H%M%S")
-        target = self.backup_dir / f"negotiation_{ts}_{int(time.time() * 1000) % 1000:03d}.db"
+        target = self.backup_dir / f"negotiation_{ts}_{time.time_ns() % 1000000:06d}.db"
         async with self._db.lock:
             await self._db.conn.execute(
                 f"VACUUM INTO '{target.as_posix().replace(chr(39), chr(39) * 2)}'"
