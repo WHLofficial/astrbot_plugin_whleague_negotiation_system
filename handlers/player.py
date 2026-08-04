@@ -174,6 +174,7 @@ class PlayerHandler:
         else:
             yield event.plain_result(
                 f"❌ 第 {result['attempt_no']} 次报价未达成，剩余 {result['remaining']} 次机会"
+                f"（当前报价把握：{result['tier']}）"
             )
 
     async def my_contracts(self, event) -> AsyncGenerator[MessageEventResult, None]:

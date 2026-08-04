@@ -17,6 +17,7 @@ from .formula import (
     expected_wage,
     release_fee_bounds,
     success_rate,
+    success_tier,
 )
 
 _PAGE_SIZE = 10
@@ -403,6 +404,7 @@ class NegotiationService:
                 "result": "fail",
                 "attempt_no": attempt_no,
                 "remaining": max_attempts - attempt_no,
+                "tier": success_tier(p),
             }
 
         try:
