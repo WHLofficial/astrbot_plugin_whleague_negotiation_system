@@ -230,6 +230,11 @@ class NegotiationSystemPlugin(Star):
         async for r in self._admin_cmd(event, self.admin_handler.advance_season):
             yield r
 
+    @filter.command("命名")
+    async def cmd_name(self, event: AstrMessageEvent) -> AsyncGenerator[MessageEventResult, None]:
+        async for r in self._admin_cmd(event, self.admin_handler.name_entity):
+            yield r
+
     @filter.command("导入球员文件")
     async def cmd_import_file(self, event: AstrMessageEvent) -> AsyncGenerator[MessageEventResult, None]:
         async for r in self._admin_cmd(event, self.admin_handler.import_file):

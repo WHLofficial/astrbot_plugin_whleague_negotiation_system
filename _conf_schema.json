@@ -57,7 +57,7 @@
     "description": "绑定失败限次",
     "hint": "绑定尝试失败达到该次数后锁定绑定功能。",
     "type": "int",
-    "default": 5
+    "default": 3
   },
   "auth_code_lock_minutes": {
     "description": "绑定锁定时长",

@@ -1,6 +1,6 @@
 from astrbot.api import logger
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 SQL_CREATE_TABLES = r"""
 
@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS league_state (
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS windows (
+    window_seq INTEGER PRIMARY KEY,
+    season_number INTEGER NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS seasons (
+    season_number INTEGER PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS plugin_config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -150,6 +163,12 @@ async def init_schema(db_manager):
         )
         await db.execute(
             "INSERT OR IGNORE INTO league_state (id, season_number, window_seq) VALUES (1, 1, 1)"
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO windows (window_seq, season_number) VALUES (1, 1)"
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO seasons (season_number) VALUES (1)"
         )
         await db.commit()
         logger.info("Database schema initialized (version %d).", SCHEMA_VERSION)
@@ -189,6 +208,20 @@ async def _table_columns(db, table: str) -> set:
 
 async def _migrate(db, current_version: int):
     """增量迁移：仅在目标列缺失时执行，保证可重复运行。"""
+    if current_version < 4:
+        await db.execute(
+            "INSERT OR IGNORE INTO seasons (season_number) "
+            "SELECT season_number FROM league_state WHERE id=1"
+        )
+        await db.commit()
+
+    if current_version < 3:
+        await db.execute(
+            "INSERT OR IGNORE INTO windows (window_seq, season_number) "
+            "SELECT window_seq, season_number FROM league_state WHERE id=1"
+        )
+        await db.commit()
+
     if current_version < 2:
         cols = await _table_columns(db, "auth_codes")
         if "code" in cols:

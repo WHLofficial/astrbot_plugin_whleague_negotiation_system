@@ -98,7 +98,7 @@ class NegotiationService:
 
     # ─── binding ────────────────────────────────────────────
 
-    async def bind_team(self, qq: str, team_name: str, code: str, group_id: str | None) -> dict:
+    async def bind_team(self, qq: str, code: str, group_id: str | None) -> dict:
         from ..utils.security import hash_auth_code
 
         now = time.time()
@@ -108,20 +108,10 @@ class NegotiationService:
             minutes = max(1, int((locked_until - now) // 60 + 1))
             raise NegotiationError(f"绑定尝试过于频繁，请 {minutes} 分钟后再试")
 
-        team = await self._dao.get_team_by_name(team_name)
-        if not team:
-            raise NegotiationError(f"球队「{team_name}」不存在")
-        existing = await self._dao.get_binding_by_qq(qq)
-        if existing:
-            raise NegotiationError(f"你已绑定球队「{existing['team_name']}」，一QQ仅可绑定一队")
-
         code_row = await self._dao.get_code_by_hash(hash_auth_code(code.strip()))
         if not code_row:
             self._register_bind_fail(qq, now)
             raise NegotiationError("认证码无效")
-        if code_row["team_id"] != team["id"]:
-            self._register_bind_fail(qq, now)
-            raise NegotiationError("认证码不属于该球队")
         if not code_row["is_active"] or code_row["used_count"] > 0:
             self._register_bind_fail(qq, now)
             raise NegotiationError("认证码已被使用或失效")
@@ -129,6 +119,13 @@ class NegotiationService:
         if expires and datetime.strptime(expires, "%Y-%m-%d %H:%M:%S") <= datetime.now():
             self._register_bind_fail(qq, now)
             raise NegotiationError("认证码已过期")
+
+        team = await self._dao.get_team_by_id(code_row["team_id"])
+        if not team:
+            raise NegotiationError("认证码所属球队不存在")
+        existing = await self._dao.get_binding_by_qq(qq)
+        if existing:
+            raise NegotiationError(f"你已绑定球队「{existing['team_name']}」，一QQ仅可绑定一队")
 
         async def _tx(conn):
             fresh = await _Tx.code_by_hash(conn, code_row["code_hash"])
@@ -169,7 +166,7 @@ class NegotiationService:
             fails = 0
         self._bind_fails[qq] = [fails, locked_until, now]
 
-    async def unbind(self, qq: str) -> dict:
+    async def unbind_qq(self, qq: str) -> dict:
         binding = await self._dao.get_binding_by_qq(qq)
         if not binding:
             raise NegotiationError(f"QQ {qq} 未绑定任何球队")
@@ -177,6 +174,24 @@ class NegotiationService:
             raise NegotiationError("该玩家持有进行中的谈判会话，禁止解绑")
         await self._dao.remove_binding(qq)
         return {"team_name": binding["team_name"], "qq": qq}
+
+    async def unbind_team(self, team_name: str) -> dict:
+        """按队名解绑：仅当该队恰好 1 人绑定时直接解绑，否则警告要求指定 QQ。"""
+        team = await self._dao.get_team_by_name(team_name)
+        if not team:
+            raise NegotiationError(f"球队「{team_name}」不存在")
+        bindings = await self._dao.get_bindings_by_team(team["id"])
+        if not bindings:
+            raise NegotiationError("该队暂无绑定成员")
+        if len(bindings) >= 2:
+            raise NegotiationError(
+                f"该队有 {len(bindings)} 人绑定，请指定要解绑的 QQ"
+            )
+        qq = bindings[0]["qq"]
+        if await self._dao.has_active_session(qq):
+            raise NegotiationError("该玩家持有进行中的谈判会话，禁止解绑")
+        await self._dao.remove_binding(qq)
+        return {"team_name": team["name"], "qq": qq}
 
     # ─── cases ──────────────────────────────────────────────
 
@@ -423,10 +438,13 @@ class NegotiationService:
             raise NegotiationError("赛季状态未初始化")
 
         async def _tx(conn):
+            cur_state = await _Tx.league_state(conn)
+            if not cur_state:
+                raise NegotiationError("赛季状态未初始化")
             async with conn.execute(
                 "SELECT COUNT(*) AS n FROM negotiation_cases "
                 "WHERE window_seq=? AND status IN ('pending','negotiating')",
-                (state["window_seq"],),
+                (cur_state["window_seq"],),
             ) as cur:
                 row = await cur.fetchone()
             if not row or row["n"] == 0:
@@ -435,7 +453,7 @@ class NegotiationService:
                 "UPDATE negotiation_cases SET status='cancelled', "
                 "updated_at=datetime('now','localtime') "
                 "WHERE window_seq=? AND status IN ('pending','negotiating')",
-                (state["window_seq"],),
+                (cur_state["window_seq"],),
             )
             return row["n"]
 
@@ -447,15 +465,21 @@ class NegotiationService:
             raise NegotiationError("赛季状态未初始化")
 
         async def _tx(conn):
-            active = await _Tx.count_active_cases(conn, state["window_seq"])
+            cur_state = await _Tx.league_state(conn)
+            if not cur_state:
+                raise NegotiationError("赛季状态未初始化")
+            active = await _Tx.count_active_cases(conn, cur_state["window_seq"])
             if active > 0:
                 raise NegotiationError(
                     f"当前窗口仍有 {active} 个未完成案例，请先取消或关闭窗口案例"
                 )
             await self._dao.advance_window(conn, updated_by)
+            state2 = await _Tx.league_state(conn)
+            await self._dao.insert_window(conn, state2["window_seq"], state2["season_number"])
+            return state2["window_seq"]
 
-        await self._db.execute_transaction(_tx)
-        return {"window_seq": state["window_seq"] + 1}
+        new_seq = await self._db.execute_transaction(_tx)
+        return {"window_seq": new_seq}
 
     async def advance_season(self, updated_by: str, reset: bool = False) -> dict:
         state = await self._dao.get_league_state()
@@ -469,14 +493,21 @@ class NegotiationService:
             new_growth = max(1, current_growth - 1)
 
         async def _tx(conn):
-            active = await _Tx.count_active_cases(conn, state["window_seq"])
+            cur_state = await _Tx.league_state(conn)
+            if not cur_state:
+                raise NegotiationError("赛季状态未初始化")
+            active = await _Tx.count_active_cases(conn, cur_state["window_seq"])
             if active > 0:
                 raise NegotiationError(
                     f"当前窗口仍有 {active} 个未完成案例，请先取消或关闭窗口案例"
                 )
             await self._dao.advance_season(conn, updated_by)
+            state2 = await _Tx.league_state(conn)
+            await self._dao.insert_window(conn, state2["window_seq"], state2["season_number"])
+            await self._dao.insert_season(conn, state2["season_number"])
+            return state2["season_number"], state2["window_seq"]
 
-        await self._db.execute_transaction(_tx)
+        season_number, window_seq = await self._db.execute_transaction(_tx)
 
         if self._persist_cfg is not None:
             try:
@@ -485,12 +516,50 @@ class NegotiationService:
                 logger.warning(f"Failed to persist growth_age: {e}")
         self._cfg["growth_age"] = new_growth
         return {
-            "season_number": state["season_number"] + 1,
-            "window_seq": state["window_seq"] + 1,
+            "season_number": season_number,
+            "window_seq": window_seq,
             "growth_age": new_growth,
         }
 
     # ─── queries ────────────────────────────────────────────
+
+    async def name_window(self, name: str) -> dict:
+        from ..utils.security import sanitize_text
+
+        name = sanitize_text(name)
+        if not name:
+            raise NegotiationError("窗口名称不能为空")
+        state = await self._dao.get_league_state()
+        if not state:
+            raise NegotiationError("赛季状态未初始化")
+
+        async def _tx(conn):
+            cur_state = await _Tx.league_state(conn)
+            if not cur_state:
+                raise NegotiationError("赛季状态未初始化")
+            await self._dao.rename_window(conn, cur_state["window_seq"], name)
+
+        await self._db.execute_transaction(_tx)
+        return {"window_seq": state["window_seq"], "name": name}
+
+    async def name_season(self, name: str) -> dict:
+        from ..utils.security import sanitize_text
+
+        name = sanitize_text(name)
+        if not name:
+            raise NegotiationError("赛季名称不能为空")
+        state = await self._dao.get_league_state()
+        if not state:
+            raise NegotiationError("赛季状态未初始化")
+
+        async def _tx(conn):
+            cur_state = await _Tx.league_state(conn)
+            if not cur_state:
+                raise NegotiationError("赛季状态未初始化")
+            await self._dao.rename_season(conn, cur_state["season_number"], name)
+
+        await self._db.execute_transaction(_tx)
+        return {"season_number": state["season_number"], "name": name}
 
     async def list_pending_for_player(self, qq: str, page_raw: str | None) -> dict:
         binding = await self._dao.get_binding_by_qq(qq)
@@ -507,7 +576,9 @@ class NegotiationService:
         return {
             "team": binding["team_name"],
             "window_seq": state["window_seq"],
+            "window_name": await self._dao.get_window_name(state["window_seq"]),
             "season_number": state["season_number"],
+            "season_name": await self._dao.get_season_name(state["season_number"]),
             "page": page,
             "rows": rows,
             "total": total,
@@ -532,8 +603,17 @@ class NegotiationService:
         page, offset = self._page_params(page_raw)
         rows = await self._dao.list_cases(window_seq, offset, _PAGE_SIZE, team_id)
         total = await self._dao.count_cases_in_window(window_seq, team_id)
+        window_row = await self._dao.get_window(window_seq)
+        window_name = window_row["name"] if window_row else ""
+        season_number = window_row["season_number"] if window_row else None
+        season_name = (
+            await self._dao.get_season_name(season_number) if season_number is not None else ""
+        )
         return {
             "window_seq": window_seq,
+            "window_name": window_name,
+            "season_number": season_number,
+            "season_name": season_name,
             "page": page,
             "rows": rows,
             "total": total,
@@ -555,6 +635,9 @@ class NegotiationService:
         return {
             "team": binding["team_name"],
             "window_seq": state["window_seq"],
+            "window_name": await self._dao.get_window_name(state["window_seq"]),
+            "season_number": state["season_number"],
+            "season_name": await self._dao.get_season_name(state["season_number"]),
             "page": page,
             "rows": rows,
             "total": total,
@@ -566,7 +649,9 @@ class NegotiationService:
             raise NegotiationError("赛季状态未初始化")
         return {
             "season_number": state["season_number"],
+            "season_name": await self._dao.get_season_name(state["season_number"]),
             "window_seq": state["window_seq"],
+            "window_name": await self._dao.get_window_name(state["window_seq"]),
             "growth_age": int(self._cfg.get("growth_age", 25)),
         }
 

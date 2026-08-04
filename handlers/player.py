@@ -26,14 +26,14 @@ class PlayerHandler:
 
     async def bind_team(self, event) -> AsyncGenerator[MessageEventResult, None]:
         parts = event.get_message_str().split()
-        if len(parts) < 3:
-            yield event.plain_result("用法: /绑定球队 <队名> <认证码>")
+        if len(parts) < 2:
+            yield event.plain_result("用法: /绑定球队 <认证码>")
             return
         qq = event.get_sender_id()
         group_id = event.get_group_id()
         result = await self._run(
             event,
-            self._plugin.negotiation_service.bind_team(qq, parts[1], parts[2], group_id),
+            self._plugin.negotiation_service.bind_team(qq, parts[1], group_id),
         )
         if "error" in result:
             yield event.plain_result(result["error"])
@@ -47,12 +47,28 @@ class PlayerHandler:
             return
         state = await self._plugin.dao.get_league_state()
         members = await self._plugin.dao.get_bindings_by_team(binding["team_id"])
+        season_label = self._season_label(
+            state["season_number"],
+            await self._plugin.dao.get_season_name(state["season_number"]),
+        )
+        window_label = self._window_label(
+            state["window_seq"],
+            await self._plugin.dao.get_window_name(state["window_seq"]),
+        )
         lines = [
             f"🏟 我的球队: {binding['team_name']}",
             f"· 绑定成员: {len(members)} 人",
-            f"· 当前: 第 {state['season_number']} 赛季 / 窗口 {state['window_seq']}",
+            f"· 当前: {season_label} / {window_label}",
         ]
         yield event.plain_result("\n".join(lines))
+
+    @staticmethod
+    def _window_label(window_seq: int, name: str) -> str:
+        return f"窗口 {window_seq}（{name}）" if name else f"窗口 {window_seq}"
+
+    @staticmethod
+    def _season_label(season_number: int, name: str) -> str:
+        return f"第 {season_number} 赛季（{name}）" if name else f"第 {season_number} 赛季"
 
     async def pending_cases(self, event) -> AsyncGenerator[MessageEventResult, None]:
         parts = event.get_message_str().split()
@@ -67,14 +83,17 @@ class PlayerHandler:
             yield event.plain_result(result["error"])
             return
         rows = result["rows"]
+        window_label = self._window_label(
+            result["window_seq"], result.get("window_name", "")
+        )
         if not rows:
             yield event.plain_result(
-                f"🕐 球队「{result['team']}」当前窗口（{result['window_seq']}）暂无待谈判球员"
+                f"🕐 球队「{result['team']}」当前{window_label}暂无待谈判球员"
             )
             return
         lines = [
             f"🕐 待谈判球员 (第{result['page']}页): "
-            f"球队「{result['team']}」窗口 {result['window_seq']}"
+            f"球队「{result['team']}」{window_label}"
         ]
         for c in rows:
             lines.append(
@@ -168,13 +187,16 @@ class PlayerHandler:
             yield event.plain_result(result["error"])
             return
         rows = result["rows"]
+        window_label = self._window_label(
+            result["window_seq"], result.get("window_name", "")
+        )
         if not rows:
             yield event.plain_result(
-                f"📄 球队「{result['team']}」当前窗口（{result['window_seq']}）暂无有效合同"
+                f"📄 球队「{result['team']}」当前{window_label}暂无有效合同"
             )
             return
         lines = [
-            f"📄 有效合同 (第{result['page']}页): 球队「{result['team']}」窗口 {result['window_seq']}"
+            f"📄 有效合同 (第{result['page']}页): 球队「{result['team']}」{window_label}"
         ]
         for ct in rows:
             mark = "自动" if ct["source"] == "forced" else "谈判"
@@ -191,8 +213,14 @@ class PlayerHandler:
         if "error" in result:
             yield event.plain_result(result["error"])
             return
+        season_label = self._season_label(
+            result["season_number"], result.get("season_name", "")
+        )
+        window_label = self._window_label(
+            result["window_seq"], result.get("window_name", "")
+        )
         yield event.plain_result(
-            f"🏆 当前赛季: 第 {result['season_number']} 赛季\n"
-            f"🪟 转会窗口: 第 {result['window_seq']} 窗\n"
+            f"🏆 当前赛季: {season_label}\n"
+            f"🪟 转会窗口: {window_label}\n"
             f"📈 成长年龄: {result['growth_age']}"
         )

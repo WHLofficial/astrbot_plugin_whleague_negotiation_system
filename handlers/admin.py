@@ -15,6 +15,16 @@ from ..utils.security import (
 _CLEAR_TOKEN_TTL = 300.0
 
 
+def _window_label(window_seq: int, name: str) -> str:
+    return f"窗口 {window_seq}（{name}）" if name else f"窗口 {window_seq}"
+
+
+def _season_label(season_number, name: str) -> str:
+    if season_number is None:
+        return "未知赛季"
+    return f"第 {season_number} 赛季（{name}）" if name else f"第 {season_number} 赛季"
+
+
 class AdminHandler:
     def __init__(self, plugin):
         self._plugin = plugin
@@ -139,24 +149,21 @@ class AdminHandler:
                 yield r
             return
         parts = event.get_message_str().split()
-        if len(parts) < 2:
-            yield event.plain_result("用法: /解绑 <队名> <QQ>")
+        if len(parts) != 2:
+            yield event.plain_result("用法: /解绑 <QQ> 或 /解绑 <队名>（队内多人时需指定 QQ）")
             return
-        target = parse_qq_arg(parts[1]) or parts[1]
-        qq = None
-        try:
-            qq = parse_qq(target)
-        except ValueError:
-            if len(parts) >= 3:
-                try:
-                    qq = parse_qq(parts[2])
-                except ValueError:
-                    yield event.plain_result("QQ 参数无效")
-                    return
-            else:
-                yield event.plain_result("QQ 参数无效")
-                return
-        result = await self._run(event, self._plugin.negotiation_service.unbind(qq))
+        target = parts[1]
+        qq = parse_qq_arg(target)
+        if qq is None and target.lstrip("@").isdigit():
+            qq = target.lstrip("@")
+        if qq is not None:
+            result = await self._run(
+                event, self._plugin.negotiation_service.unbind_qq(qq)
+            )
+        else:
+            result = await self._run(
+                event, self._plugin.negotiation_service.unbind_team(target)
+            )
         if "error" in result:
             yield event.plain_result(result["error"])
             return
@@ -172,7 +179,7 @@ class AdminHandler:
         parts = event.get_message_str().split(maxsplit=6)
         if len(parts) < 7:
             yield event.plain_result(
-                "用法: /创建谈判 <球员UID> <队名> <年龄> <CA> <PA> <旧违约金>"
+                "用法: /创建谈判 <队名> <球员UID> <年龄> <CA> <PA> <旧违约金>"
             )
             return
         try:
@@ -186,7 +193,7 @@ class AdminHandler:
         result = await self._run(
             event,
             self._plugin.negotiation_service.create_case(
-                parts[1], parts[2], age, ca, pa, old_fee, event.get_sender_id()
+                parts[2], parts[1], age, ca, pa, old_fee, event.get_sender_id()
             ),
         )
         if "error" in result:
@@ -224,14 +231,20 @@ class AdminHandler:
             yield event.plain_result(result["error"])
             return
         rows = result["rows"]
+        season_label = _season_label(
+            result.get("season_number"), result.get("season_name", "")
+        )
+        window_label = _window_label(
+            result["window_seq"], result.get("window_name", "")
+        )
         if not rows:
             yield event.plain_result(
-                f"窗口 {result['window_seq']} 暂无谈判案例"
+                f"{season_label} · {window_label} 暂无谈判案例"
             )
             return
         status_icons = {"pending": "🕐", "negotiating": "💬", "success": "✅", "cancelled": "❌"}
         lines = [
-            f"📋 谈判案例 (窗口 {result['window_seq']}, 第{result['page']}页, 共{result['total']}条)"
+            f"📋 谈判案例 ({season_label} · {window_label}, 第{result['page']}页, 共{result['total']}条)"
         ]
         for c in rows:
             lines.append(
@@ -357,6 +370,27 @@ class AdminHandler:
             f"✅ 已进入第 {result['season_number']} 赛季（窗口 {result['window_seq']}）\n"
             f"成长年龄: {result['growth_age']}（{mode}）"
         )
+
+    async def name_entity(self, event) -> AsyncGenerator[MessageEventResult, None]:
+        if not await self._require_admin(event):
+            async for r in self._deny(event):
+                yield r
+            return
+        parts = event.get_message_str().split(maxsplit=2)
+        if len(parts) < 3 or parts[1] not in ("窗口", "赛季"):
+            yield event.plain_result("用法: /命名 <窗口|赛季> <名称>")
+            return
+        target = parts[1]
+        svc = self._plugin.negotiation_service
+        if target == "窗口":
+            result = await self._run(event, svc.name_window(parts[2]))
+        else:
+            result = await self._run(event, svc.name_season(parts[2]))
+        if "error" in result:
+            yield event.plain_result(result["error"])
+            return
+        seq = result.get("window_seq", result.get("season_number"))
+        yield event.plain_result(f"✅ 已命名{target} {seq} 为「{result['name']}」")
 
     # ─── import ─────────────────────────────────────────────
 

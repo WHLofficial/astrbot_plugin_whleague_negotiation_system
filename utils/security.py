@@ -46,14 +46,11 @@ def parse_int(raw: str, min_val: int | None = None, max_val: int | None = None) 
 
 
 def parse_float_2dp(raw: str, min_val: float | None = None, max_val: float | None = None) -> float:
-    """解析浮点数并保留 2 位小数（四舍五入），非法输入抛 ValueError。"""
-    try:
-        val = float(str(raw).strip())
-    except (ValueError, TypeError):
-        raise ValueError(f"Invalid number: {raw}")
-    if val != val or val in (float("inf"), float("-inf")):
-        raise ValueError(f"Invalid number: {raw}")
-    val = round(val, 2)
+    """解析浮点数；拒绝超过 2 位小数的输入（防静默舍入改写用户输入）。"""
+    s = str(raw).strip()
+    if not re.match(r"^\d+(\.\d{1,2})?$", s):
+        raise ValueError(f"最多 2 位小数: {raw}")
+    val = float(s)
     if min_val is not None and val < min_val:
         raise ValueError(f"Value {val} is below minimum {min_val}")
     if max_val is not None and val > max_val:

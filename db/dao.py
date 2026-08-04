@@ -432,6 +432,57 @@ class NegotiationDAO:
             (updated_by,),
         )
 
+    # ─── windows ────────────────────────────────────────────
+
+    async def insert_window(self, conn, window_seq: int, season_number: int) -> None:
+        await conn.execute(
+            "INSERT OR IGNORE INTO windows (window_seq, season_number) VALUES (?, ?)",
+            (window_seq, season_number),
+        )
+
+    async def rename_window(self, conn, window_seq: int, name: str) -> None:
+        await conn.execute(
+            "INSERT OR IGNORE INTO windows (window_seq, season_number) "
+            "SELECT window_seq, season_number FROM league_state WHERE id=1"
+        )
+        await conn.execute(
+            "UPDATE windows SET name=? WHERE window_seq=?", (name, window_seq)
+        )
+
+    async def get_window(self, window_seq: int):
+        return await self._db.fetchone(
+            "SELECT * FROM windows WHERE window_seq=?", (window_seq,)
+        )
+
+    async def get_window_name(self, window_seq: int) -> str:
+        row = await self._db.fetchone(
+            "SELECT name FROM windows WHERE window_seq=?", (window_seq,)
+        )
+        return row["name"] if row else ""
+
+    # ─── seasons ────────────────────────────────────────────
+
+    async def insert_season(self, conn, season_number: int) -> None:
+        await conn.execute(
+            "INSERT OR IGNORE INTO seasons (season_number) VALUES (?)",
+            (season_number,),
+        )
+
+    async def rename_season(self, conn, season_number: int, name: str) -> None:
+        await conn.execute(
+            "INSERT OR IGNORE INTO seasons (season_number) "
+            "SELECT season_number FROM league_state WHERE id=1"
+        )
+        await conn.execute(
+            "UPDATE seasons SET name=? WHERE season_number=?", (name, season_number)
+        )
+
+    async def get_season_name(self, season_number: int) -> str:
+        row = await self._db.fetchone(
+            "SELECT name FROM seasons WHERE season_number=?", (season_number,)
+        )
+        return row["name"] if row else ""
+
     # ─── plugin config ──────────────────────────────────────
 
     async def set_config(self, key: str, value: str) -> None:
