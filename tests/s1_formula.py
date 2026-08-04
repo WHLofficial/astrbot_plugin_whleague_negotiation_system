@@ -78,6 +78,59 @@ def test_monotonic_ratio():
     assert math.isfinite(hi)
 
 
+def test_rating_level_extremes():
+    assert rating_level(200) == 10
+    assert rating_level(0) == 1
+    assert rating_level(-5) == 1
+    assert rating_level(59) == 1
+    assert rating_level(60) == 2
+    assert rating_level(93) == 10
+
+
+def test_expected_wage_stability():
+    v = expected_wage(10.0, 300, 0.02, 1.9, 0.45)
+    assert math.isfinite(v) and v > 0
+    v2 = expected_wage(1.0, 1, 0.02, 1.9, 0.45)
+    assert math.isfinite(v2) and v2 > 0
+    v3 = expected_wage(6.5, 1000000000, 0.02, 1.9, 0.45)
+    assert math.isfinite(v3)
+
+
+def test_success_rate_extremes():
+    assert success_rate(0.01, 0.001) == 1.0
+    assert success_rate(20.0, 0.02) == 1.0
+    assert success_rate(0.01, 20.0) > 0.0
+    assert success_rate(0.02, 0.01) == 1.0
+    assert success_rate(5.0, 10.0) < success_rate(9.0, 10.0)
+
+
+def test_attempt_expected_edges():
+    assert attempt_expected(5.0, 1, 1.0) == 5.0
+    assert attempt_expected(5.0, 2, 1.0) == 5.0
+    assert attempt_expected(5.0, 5, 0.95) == 4.75
+
+
+def test_fuzz_1000():
+    import random
+
+    rng = random.Random(42)
+    for _ in range(1000):
+        level = rng.uniform(1.0, 10.0)
+        fee = rng.randint(1, 300)
+        ca = rng.randint(0, 200)
+        pa = rng.randint(0, 200)
+        age = rng.randint(14, 50)
+        growth = rng.randint(10, 30)
+        offered = rng.uniform(0.01, 20.0)
+        expected = expected_wage(level, fee, 0.02, 1.9, 0.45)
+        assert math.isfinite(expected) and expected > 0, (level, fee)
+        p = success_rate(offered, expected)
+        assert 0.0 <= p <= 1.0, (offered, expected)
+        lv = ability_level(ca, pa, age, growth)
+        assert 1.0 <= lv <= 10.0
+        assert rating_level(ca) in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+
 def run_all():
     tests = [
         test_rating_level,
@@ -87,6 +140,11 @@ def run_all():
         test_success_rate_values,
         test_attempt_expected,
         test_monotonic_ratio,
+        test_rating_level_extremes,
+        test_expected_wage_stability,
+        test_success_rate_extremes,
+        test_attempt_expected_edges,
+        test_fuzz_1000,
     ]
     for t in tests:
         t()

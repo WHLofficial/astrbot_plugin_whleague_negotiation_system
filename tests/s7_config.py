@@ -1,9 +1,16 @@
 """配置解析与边界校验测试。"""
 
+import re
+
 from astrbot_plugin_whleague_negotiation_system.config.defaults import (
     DEFAULT_CONFIG,
     parse_group_list,
     validate_and_cast,
+)
+from astrbot_plugin_whleague_negotiation_system.utils.security import (
+    format_wage,
+    generate_auth_code,
+    parse_float_2dp,
 )
 
 
@@ -21,6 +28,7 @@ def test_defaults_shape():
     assert DEFAULT_CONFIG["wage_min"] == 0.01
     assert DEFAULT_CONFIG["wage_max"] == 20.0
     assert DEFAULT_CONFIG["auth_code_default_expire_hours"] == 24
+    assert DEFAULT_CONFIG["auth_code_attempt_limit"] == 3
 
 
 def test_int_bounds():
@@ -53,6 +61,40 @@ def test_list_parse():
     assert parse_group_list(["a", "b"]) == ["a", "b"]
 
 
+def test_parse_float_2dp():
+    assert parse_float_2dp("1.5") == 1.5
+    assert parse_float_2dp("0.01") == 0.01
+    assert parse_float_2dp("20") == 20.0
+    assert parse_float_2dp("1.23", min_val=0.01, max_val=20.0) == 1.23
+    for bad in ("1.005", "1.999", "-1", "abc", "1.2.3", "", "1e3", "0.001"):
+        try:
+            parse_float_2dp(bad)
+            assert False, f"accepted {bad!r}"
+        except ValueError:
+            pass
+    try:
+        parse_float_2dp("21", max_val=20.0)
+        assert False, "accepted 21 with max 20"
+    except ValueError:
+        pass
+
+
+def test_format_wage():
+    assert format_wage(2.0) == "2"
+    assert format_wage(3.1) == "3.1"
+    assert format_wage(0.01) == "0.01"
+    assert format_wage(20.0) == "20"
+    assert format_wage(2.93) == "2.93"
+
+
+def test_auth_code_charset():
+    pattern = re.compile(r"^[A-HJ-NP-Za-km-np-z2-9]{8}$")
+    for _ in range(200):
+        code = generate_auth_code()
+        assert pattern.match(code), code
+        assert not any(c in code for c in "0O1lI"), code
+
+
 def run_all():
     tests = [
         test_defaults_shape,
@@ -60,6 +102,9 @@ def run_all():
         test_float_bounds,
         test_time_and_bool,
         test_list_parse,
+        test_parse_float_2dp,
+        test_format_wage,
+        test_auth_code_charset,
     ]
     for t in tests:
         t()

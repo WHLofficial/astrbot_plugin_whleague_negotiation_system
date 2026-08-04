@@ -13,7 +13,7 @@ async def _setup_case(env: TestEnv, team="竞态队", uid="771", qq="70001"):
     svc = env.service
     await svc.create_team(team, "admin1")
     code = await svc.generate_code(team, "admin1", hours=1)
-    await svc.bind_team(qq, team, code["code"], "g1")
+    await svc.bind_team(qq, code["code"], "g1")
     await env.import_service.import_rows([(uid, "Race", "")], "admin1")
     return await svc.create_case(uid, team, 22, 88, 88, 12, "admin1")
 
@@ -121,6 +121,29 @@ async def test_cancel_vs_offer(env: TestEnv):
         )
 
 
+async def test_double_advance_with_create(env: TestEnv):
+    svc = env.service
+
+    async def adv():
+        try:
+            return await svc.advance_window("admin1")
+        except NegotiationError as e:
+            return e
+
+    async def create(uid: str):
+        try:
+            return await svc.create_case(uid, "竞态队", 22, 88, 88, 12, "admin1")
+        except NegotiationError as e:
+            return e
+
+    for i in range(5):
+        await env.import_service.import_rows([(f"79{i}", "Race2", "")], "admin1")
+        await asyncio.gather(
+            adv(), adv(), create(f"79{i}"), return_exceptions=True
+        )
+        await _assert_no_stranded(env)
+
+
 def run_all():
     async def main():
         env = TestEnv()
@@ -132,8 +155,10 @@ def run_all():
             print("  PASS test_advance_vs_create")
             await test_cancel_vs_offer(env)
             print("  PASS test_cancel_vs_offer")
+            await test_double_advance_with_create(env)
+            print("  PASS test_double_advance_with_create")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 3
+    return 4

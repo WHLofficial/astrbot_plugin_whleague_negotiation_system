@@ -22,6 +22,9 @@ def main():
         "s6_backup",
         "s7_config",
         "s8_migration",
+        "s9_handlers",
+        "s10_main",
+        "s11_perf",
     ]
     total = 0
     failed = []

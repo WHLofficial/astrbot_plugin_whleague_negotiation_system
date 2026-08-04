@@ -21,6 +21,11 @@ class _Logger:
         pass
 
 
+class _Star:
+    def __init__(self, context=None):
+        self.context = context
+
+
 def install_stubs():
     if "astrbot" in sys.modules:
         return
@@ -44,7 +49,7 @@ def install_stubs():
 
     star_pkg = types.ModuleType("astrbot.api.star")
     star_pkg.Context = object
-    star_pkg.Star = object
+    star_pkg.Star = _Star
     star_pkg.register = lambda *a, **k: (lambda cls: cls)
     sys.modules["astrbot.api.star"] = star_pkg
 

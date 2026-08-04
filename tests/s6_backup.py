@@ -4,6 +4,7 @@ import asyncio
 
 from .common import TestEnv
 
+from astrbot_plugin_whleague_negotiation_system.db.connection import DatabaseManager
 from astrbot_plugin_whleague_negotiation_system.services.backup_service import (
     BackupService,
 )
@@ -18,6 +19,18 @@ async def test_backup_create(env: TestEnv):
     files = list(bs.backup_dir.glob("negotiation_*.db"))
     assert len(files) == 1
     assert files[0].stat().st_size > 0
+
+
+async def test_backup_openable(env: TestEnv):
+    svc = env.service
+    await svc.create_team("恢复队", "admin1")
+    bs = BackupService(env.db, env.cfg)
+    result = await bs.run_backup()
+    db2 = DatabaseManager(result["path"])
+    await db2.init()
+    row = await db2.fetchone("SELECT COUNT(*) AS n FROM teams WHERE name='恢复队'")
+    await db2.close()
+    assert row["n"] == 1
 
 
 async def test_backup_keep_count(env: TestEnv):
@@ -36,10 +49,12 @@ def run_all():
         try:
             await test_backup_create(env)
             print("  PASS test_backup_create")
+            await test_backup_openable(env)
+            print("  PASS test_backup_openable")
             await test_backup_keep_count(env)
             print("  PASS test_backup_keep_count")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 2
+    return 3
