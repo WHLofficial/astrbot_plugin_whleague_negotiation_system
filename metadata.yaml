@@ -3,4 +3,7 @@ display_name: 谈判系统 # 用于展示的名字
 desc: 球员合同谈判系统：球队认证、球员库导入、工资谈判、转会窗口与赛季。 # 插件简短描述
 version: v1.0.0 # 插件版本号
 author: WHLofficial # 作者
-repo: "" # 插件的仓库地址
+repo: "https://github.com/WHLofficial/astrbot_plugin_whleague_negotiation_system"
+support_platforms:
+  - "aiocqhttp"
+astrbot_version: ">=4"
