@@ -1,6 +1,6 @@
 from astrbot.api import logger
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SQL_CREATE_TABLES = r"""
 
@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS player_roster (
     player_uid TEXT NOT NULL UNIQUE,
     foreign_name TEXT NOT NULL DEFAULT '',
     chinese_name TEXT NOT NULL DEFAULT '',
+    agent_tier INTEGER NOT NULL DEFAULT 2,
     created_by TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -208,6 +209,14 @@ async def _table_columns(db, table: str) -> set:
 
 async def _migrate(db, current_version: int):
     """增量迁移：仅在目标列缺失时执行，保证可重复运行。"""
+    if current_version < 5:
+        cols = await _table_columns(db, "player_roster")
+        if "agent_tier" not in cols:
+            await db.execute(
+                "ALTER TABLE player_roster ADD COLUMN agent_tier INTEGER NOT NULL DEFAULT 2"
+            )
+        await db.commit()
+
     if current_version < 4:
         await db.execute(
             "INSERT OR IGNORE INTO seasons (season_number) "

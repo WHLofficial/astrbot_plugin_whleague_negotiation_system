@@ -76,6 +76,10 @@ def success_rate(offered: float, expected: float):
     return 1.0 / (1.0 + math.exp(-9.0 * ((ratio - 0.6) / 0.4 - 0.5)))
 
 
+def direct_fail_check(p: float, threshold: float, probability: float, roll: float) -> bool:
+    return p < threshold and roll < probability
+
+
 def success_tier(p: float, thresholds=(0.25, 0.6, 0.9)):
     lo, mid, hi = thresholds
     if p >= hi:

@@ -29,6 +29,18 @@
     "type": "string",
     "default": "0.25,0.6,0.9"
   },
+  "agent_tiers": {
+    "description": "内部参数，请勿修改。",
+    "hint": "内部参数，请勿修改。",
+    "type": "string",
+    "default": "{\"1\":{\"threshold\":0.15,\"probability\":0.3},\"2\":{\"threshold\":0.25,\"probability\":0.5},\"3\":{\"threshold\":0.35,\"probability\":0.7}}"
+  },
+  "agent_change_probability": {
+    "description": "内部参数，请勿修改。",
+    "hint": "内部参数，请勿修改。",
+    "type": "float",
+    "default": 0.3
+  },
   "growth_age": {
     "description": "成长年龄",
     "hint": "年龄小于等于该值的球员视为可成长球员；赛季推进时可减一或恢复。",

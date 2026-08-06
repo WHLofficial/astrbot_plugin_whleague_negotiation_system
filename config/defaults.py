@@ -1,7 +1,7 @@
 import json
 import os
 
-PLUGIN_VERSION = "1.1.1"
+PLUGIN_VERSION = "1.2.0"
 """插件版本号，与 metadata.yaml 保持一致。"""
 
 _SCHEMA_PATH = os.path.join(
@@ -121,6 +121,47 @@ def _validate_tier_thresholds(raw: str) -> str:
     return ",".join(f"{v:g}" for v in values)
 
 
+def _validate_agent_tiers(raw: str) -> str:
+    try:
+        data = json.loads(str(raw))
+    except (ValueError, TypeError):
+        raise ValueError("agent_tiers 需为 JSON 字符串")
+    if not isinstance(data, dict):
+        raise ValueError("agent_tiers 需为 JSON 对象")
+    items = []
+    for key in ("1", "2", "3"):
+        t = data.get(key)
+        if not isinstance(t, dict):
+            raise ValueError("agent_tiers 需包含 1/2/3 三档")
+        try:
+            th = float(t["threshold"])
+            pr = float(t["probability"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"档位 {key} 需包含数字 threshold/probability")
+        if not (0.0 < th < 1.0) or not (0.0 < pr < 1.0):
+            raise ValueError(f"档位 {key} 的数值需在 (0,1) 之间")
+        items.append((th, pr))
+    if not (items[0][0] < items[1][0] < items[2][0]):
+        raise ValueError("agent_tiers 的 threshold 需随档严格递增")
+    if not (items[0][1] < items[1][1] < items[2][1]):
+        raise ValueError("agent_tiers 的 probability 需随档严格递增")
+    return json.dumps(
+        {k: {"threshold": t, "probability": p} for k, (t, p) in zip(("1", "2", "3"), items)},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _validate_agent_change_probability(raw: str) -> float:
+    try:
+        v = float(str(raw).strip())
+    except ValueError:
+        raise ValueError("agent_change_probability 需为数字")
+    if not (0.0 < v <= 1.0):
+        raise ValueError("agent_change_probability 需在 (0,1] 之间")
+    return v
+
+
 def parse_group_list(raw):
     """将配置中的群白名单解析为列表，兼容 JSON 数组或逗号分隔文本。"""
     if isinstance(raw, (list, tuple)):
@@ -146,6 +187,12 @@ def validate_and_cast(key: str, raw: str):
 
     if key == "tier_thresholds":
         return _validate_tier_thresholds(raw)
+
+    if key == "agent_tiers":
+        return _validate_agent_tiers(raw)
+
+    if key == "agent_change_probability":
+        return _validate_agent_change_probability(raw)
 
     if key in _LIST_KEYS:
         return parse_group_list(raw)

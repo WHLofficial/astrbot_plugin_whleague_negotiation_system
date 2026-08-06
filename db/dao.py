@@ -116,6 +116,28 @@ class NegotiationDAO:
             "SELECT * FROM player_roster WHERE id=?", (player_id,)
         )
 
+    async def list_player_ids(self, conn) -> list:
+        cur = await conn.execute("SELECT id FROM player_roster")
+        try:
+            rows = await cur.fetchall()
+            return [r["id"] for r in rows]
+        finally:
+            await cur.close()
+
+    async def get_player_agent_tier(self, conn, player_id: int) -> int:
+        async with conn.execute(
+            "SELECT agent_tier FROM player_roster WHERE id=?", (player_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["agent_tier"]) if row else 2
+
+    async def set_player_agent_tier(self, conn, player_id: int, tier: int) -> None:
+        await conn.execute(
+            "UPDATE player_roster SET agent_tier=?, "
+            "updated_at=datetime('now','localtime') WHERE id=?",
+            (tier, player_id),
+        )
+
     async def count_players(self) -> int:
         row = await self._db.fetchone("SELECT COUNT(*) AS n FROM player_roster")
         return row["n"] if row else 0
@@ -183,7 +205,7 @@ class NegotiationDAO:
         if team_id is None:
             if status is None:
                 return await self._db.fetchall(
-                    "SELECT c.*, p.player_uid, p.foreign_name, t.name AS team_name "
+                    "SELECT c.*, p.player_uid, p.foreign_name, p.agent_tier, t.name AS team_name "
                     "FROM negotiation_cases c "
                     "JOIN player_roster p ON p.id=c.player_id "
                     "JOIN teams t ON t.id=c.team_id "
@@ -191,7 +213,7 @@ class NegotiationDAO:
                     (window_seq, limit, offset),
                 )
             return await self._db.fetchall(
-                "SELECT c.*, p.player_uid, p.foreign_name, t.name AS team_name "
+                "SELECT c.*, p.player_uid, p.foreign_name, p.agent_tier, t.name AS team_name "
                 "FROM negotiation_cases c "
                 "JOIN player_roster p ON p.id=c.player_id "
                 "JOIN teams t ON t.id=c.team_id "
@@ -200,7 +222,7 @@ class NegotiationDAO:
             )
         if status is None:
             return await self._db.fetchall(
-                "SELECT c.*, p.player_uid, p.foreign_name, t.name AS team_name "
+                "SELECT c.*, p.player_uid, p.foreign_name, p.agent_tier, t.name AS team_name "
                 "FROM negotiation_cases c "
                 "JOIN player_roster p ON p.id=c.player_id "
                 "JOIN teams t ON t.id=c.team_id "
@@ -208,7 +230,7 @@ class NegotiationDAO:
                 (window_seq, team_id, limit, offset),
             )
         return await self._db.fetchall(
-            "SELECT c.*, p.player_uid, p.foreign_name, t.name AS team_name "
+            "SELECT c.*, p.player_uid, p.foreign_name, p.agent_tier, t.name AS team_name "
             "FROM negotiation_cases c "
             "JOIN player_roster p ON p.id=c.player_id "
             "JOIN teams t ON t.id=c.team_id "

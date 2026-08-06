@@ -5,6 +5,7 @@
 由上层 handler 转为提示文案。
 """
 
+import json
 import random
 import time
 from datetime import datetime, timedelta
@@ -14,6 +15,7 @@ from astrbot.api import logger
 from .formula import (
     ability_level,
     attempt_expected,
+    direct_fail_check,
     expected_wage,
     release_fee_bounds,
     success_rate,
@@ -24,6 +26,12 @@ _PAGE_SIZE = 10
 
 _BIND_FAIL_WINDOW = 600.0
 _BIND_FAIL_PRUNE_THRESHOLD = 2048
+
+_AGENT_TIERS_FALLBACK = {
+    "1": {"threshold": 0.15, "probability": 0.3},
+    "2": {"threshold": 0.25, "probability": 0.5},
+    "3": {"threshold": 0.35, "probability": 0.7},
+}
 
 
 class NegotiationError(Exception):
@@ -69,6 +77,30 @@ class NegotiationService:
         except ValueError:
             pass
         return (0.25, 0.6, 0.9)
+
+    def _agent_tiers(self) -> dict:
+        raw = self._cfg.get("agent_tiers", None)
+        if isinstance(raw, dict):
+            raw = json.dumps(raw)
+        try:
+            data = json.loads(str(raw))
+            items = []
+            for key in ("1", "2", "3"):
+                t = data[str(key)]
+                items.append((float(t["threshold"]), float(t["probability"])))
+            ths = [it[0] for it in items]
+            prs = [it[1] for it in items]
+            if (
+                0 < ths[0] < ths[1] < ths[2] < 1
+                and 0 < prs[0] < prs[1] < prs[2] < 1
+            ):
+                return {
+                    k: {"threshold": t, "probability": p}
+                    for k, (t, p) in zip(("1", "2", "3"), items)
+                }
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+        return dict(_AGENT_TIERS_FALLBACK)
 
     # ─── teams ──────────────────────────────────────────────
 
@@ -427,6 +459,26 @@ class NegotiationService:
             attempt_no = count + 1
             eff_expected = attempt_expected(fresh["expected_wage"], attempt_no, mult)
             p = success_rate(wage, eff_expected)
+            tiers = self._agent_tiers()
+            tier = await _Tx.player_tier(conn, fresh_case["player_id"])
+            th = float(tiers[str(tier)]["threshold"])
+            pr = float(tiers[str(tier)]["probability"])
+            risk = p < th
+            if direct_fail_check(p, th, pr, random.random()):
+                settle_wage = fresh["expected_wage"] if attempt_no >= max_attempts else eff_expected
+                await self._dao.insert_attempt(
+                    conn, fresh["id"], attempt_no, wage, eff_expected, "fail"
+                )
+                await conn.execute(
+                    "UPDATE negotiation_sessions SET attempt_count=? WHERE id=?",
+                    (attempt_no, fresh["id"]),
+                )
+                await self._finalize(conn, fresh, settle_wage, "direct", attempt_no)
+                return {
+                    "result": "direct",
+                    "wage": settle_wage,
+                    "attempt_no": attempt_no,
+                }
             success = random.random() < p
             await self._dao.insert_attempt(
                 conn, fresh["id"], attempt_no, wage, eff_expected,
@@ -456,6 +508,7 @@ class NegotiationService:
                 "attempt_no": attempt_no,
                 "remaining": max_attempts - attempt_no,
                 "tier": success_tier(p, self._tier_thresholds()),
+                "risk": risk,
             }
 
         try:
@@ -484,6 +537,13 @@ class NegotiationService:
         await self._dao.update_case_status(conn, case["id"], "success")
 
     # ─── window / season ────────────────────────────────────
+
+    async def _reroll_agent_tiers(self, conn) -> None:
+        prob = float(self._cfg.get("agent_change_probability", 0.3))
+        ids = await self._dao.list_player_ids(conn)
+        for pid in ids:
+            if random.random() < prob:
+                await self._dao.set_player_agent_tier(conn, pid, random.choice((1, 2, 3)))
 
     async def close_window_cases(self) -> int:
         state = await self._dao.get_league_state()
@@ -537,6 +597,7 @@ class NegotiationService:
             await self._dao.advance_window(conn, updated_by)
             state2 = await _Tx.league_state(conn)
             await self._dao.insert_window(conn, state2["window_seq"], state2["season_number"])
+            await self._reroll_agent_tiers(conn)
             return state2["window_seq"]
 
         new_seq = await self._db.execute_transaction(_tx)
@@ -566,6 +627,7 @@ class NegotiationService:
             state2 = await _Tx.league_state(conn)
             await self._dao.insert_window(conn, state2["window_seq"], state2["season_number"])
             await self._dao.insert_season(conn, state2["season_number"])
+            await self._reroll_agent_tiers(conn)
             return state2["season_number"], state2["window_seq"]
 
         season_number, window_seq = await self._db.execute_transaction(_tx)
@@ -757,6 +819,14 @@ class _Tx:
             "SELECT * FROM negotiation_cases WHERE id=?", (case_id,)
         ) as cur:
             return await cur.fetchone()
+
+    @staticmethod
+    async def player_tier(conn, player_id: int) -> int:
+        async with conn.execute(
+            "SELECT agent_tier FROM player_roster WHERE id=?", (player_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row["agent_tier"]) if row else 2
 
     @staticmethod
     async def count_attempts(conn, session_id: int) -> int:
