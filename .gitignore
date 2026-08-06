@@ -208,6 +208,7 @@ __marimo__/
 
 # Plugin internal design document (confidential)
 DESIGN.md
+DESIGN_V120.md
 
 # Plugin runtime data
 *.db
