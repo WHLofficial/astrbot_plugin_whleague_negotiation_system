@@ -8,6 +8,8 @@ from ..utils.security import format_wage, parse_float_2dp, parse_int
 
 _STATUS_ICONS = {"pending": "🕐", "negotiating": "💬", "success": "✅", "cancelled": "❌"}
 
+_AGENT_TIER_NAMES = {1: "温和", 2: "普通", 3: "苛刻"}
+
 
 class PlayerHandler:
     def __init__(self, plugin):
@@ -109,9 +111,11 @@ class PlayerHandler:
             f"球队「{result['team']}」{window_label}"
         ]
         for c in rows:
+            tier_name = _AGENT_TIER_NAMES.get(dict(c).get("agent_tier", 2), "普通")
             lines.append(
                 f"#{c['id']} {c['foreign_name']}({c['player_uid']}) "
                 f"| 年龄{c['age']} CA{c['ca']} PA{c['pa']} 旧违约金{c['old_release_fee']}"
+                f" | 经纪人：{tier_name}"
             )
         lines.append("回复 /开始谈判 <案例ID> <新违约金> 开始")
         yield event.plain_result("\n".join(lines))
@@ -180,14 +184,21 @@ class PlayerHandler:
             yield event.plain_result(
                 f"🎉 谈判成功！以 {format_wage(result['wage'])} {self._wage_unit()} 达成协议（第 {result['attempt_no']} 次报价）"
             )
+        elif result["result"] == "direct":
+            yield event.plain_result(
+                f"❌ 报价过低，谈判直接失败，已按该次预期工资 {format_wage(result['wage'])} {self._wage_unit()} 结算（第 {result['attempt_no']} 次报价）"
+            )
         elif result["result"] == "forced":
             yield event.plain_result(
                 f"📄 三次报价均未达成，已按预期工资 {format_wage(result['wage'])} {self._wage_unit()} 自动签约（第 {result['attempt_no']} 次报价后）"
             )
         else:
+            tier_txt = result["tier"]
+            if result.get("risk"):
+                tier_txt += "（报价过低有直接失败风险）"
             yield event.plain_result(
                 f"❌ 第 {result['attempt_no']} 次报价未达成，剩余 {result['remaining']} 次机会"
-                f"（当前报价把握：{result['tier']}）"
+                f"（当前报价把握：{tier_txt}）"
             )
 
     async def my_contracts(self, event) -> AsyncGenerator[MessageEventResult, None]:
@@ -213,7 +224,7 @@ class PlayerHandler:
             f"📄 有效合同 (第{result['page']}页): 球队「{result['team']}」{window_label}"
         ]
         for ct in rows:
-            mark = "自动" if ct["source"] == "forced" else "谈判"
+            mark = {"forced": "自动", "direct": "报价过低"}.get(ct["source"], "谈判")
             lines.append(
                 f"· {ct['foreign_name']}({ct['player_uid']}) "
                 f"| 工资 {format_wage(ct['wage'])} {self._wage_unit()} | 违约金 {ct['release_fee']} {self._fee_unit()} | {mark}"

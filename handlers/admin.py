@@ -15,6 +15,18 @@ from ..utils.security import (
 
 _CLEAR_TOKEN_TTL = 300.0
 
+_SECRET_CONFIG_KEYS = frozenset(
+    {
+        "agent_tiers",
+        "agent_change_probability",
+        "wage_param_a",
+        "wage_param_b",
+        "wage_param_c",
+        "attempt_decay_multiplier",
+        "tier_thresholds",
+    }
+)
+
 
 def _window_label(window_seq: int, name: str) -> str:
     return f"窗口 {window_seq}（{name}）" if name else f"窗口 {window_seq}"
@@ -558,13 +570,16 @@ class AdminHandler:
 
         lines = ["⚙ 当前配置"]
         for key, default in DEFAULT_CONFIG.items():
-            val = self._plugin.config_cache.get(key, default)
-            if isinstance(val, list):
-                display = ",".join(str(v) for v in val) if val else "(空)"
-            elif isinstance(val, bool):
-                display = str(val).lower()
+            if key in _SECRET_CONFIG_KEYS:
+                display = "（内部参数，已隐藏）"
             else:
-                display = str(val)
+                val = self._plugin.config_cache.get(key, default)
+                if isinstance(val, list):
+                    display = ",".join(str(v) for v in val) if val else "(空)"
+                elif isinstance(val, bool):
+                    display = str(val).lower()
+                else:
+                    display = str(val)
             lines.append(f"{key} = {display}")
         yield event.plain_result("\n".join(lines))
 
