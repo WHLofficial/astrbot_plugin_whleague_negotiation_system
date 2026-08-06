@@ -106,6 +106,40 @@ def test_tier_thresholds():
             pass
 
 
+def test_agent_tiers():
+    good = '{"1":{"threshold":0.15,"probability":0.3},"2":{"threshold":0.25,"probability":0.5},"3":{"threshold":0.35,"probability":0.7}}'
+    assert validate_and_cast("agent_tiers", good) == good
+    shuffled = '{"3":{"probability":0.7,"threshold":0.35},"1":{"threshold":0.15,"probability":0.3},"2":{"threshold":0.25,"probability":0.5}}'
+    assert validate_and_cast("agent_tiers", shuffled) == good
+    for bad in (
+        "not json",
+        "[]",
+        '{"1":{},"2":{},"3":{}}',
+        '{"1":{"threshold":0.5,"probability":0.3},"2":{"threshold":0.25,"probability":0.5},"3":{"threshold":0.35,"probability":0.7}}',
+        '{"1":{"threshold":0.15,"probability":0.7},"2":{"threshold":0.25,"probability":0.5},"3":{"threshold":0.35,"probability":0.3}}',
+        '{"1":{"threshold":0.15,"probability":0.3},"2":{"threshold":0.25,"probability":0.5}}',
+        '{"1":{"threshold":0,"probability":0.3},"2":{"threshold":0.25,"probability":0.5},"3":{"threshold":0.35,"probability":0.7}}',
+        '{"1":{"threshold":1.5,"probability":0.3},"2":{"threshold":0.25,"probability":0.5},"3":{"threshold":0.35,"probability":0.7}}',
+        '{"1":{"threshold":"x","probability":0.3},"2":{"threshold":0.25,"probability":0.5},"3":{"threshold":0.35,"probability":0.7}}',
+    ):
+        try:
+            validate_and_cast("agent_tiers", bad)
+            assert False, f"accepted {bad!r}"
+        except ValueError:
+            pass
+
+
+def test_agent_change_probability():
+    assert validate_and_cast("agent_change_probability", "0.3") == 0.3
+    assert validate_and_cast("agent_change_probability", "1") == 1.0
+    for bad in ("0", "-0.1", "1.1", "abc", ""):
+        try:
+            validate_and_cast("agent_change_probability", bad)
+            assert False, f"accepted {bad!r}"
+        except ValueError:
+            pass
+
+
 def run_all():
     tests = [
         test_defaults_shape,
@@ -117,6 +151,8 @@ def run_all():
         test_format_wage,
         test_auth_code_charset,
         test_tier_thresholds,
+        test_agent_tiers,
+        test_agent_change_probability,
     ]
     for t in tests:
         t()

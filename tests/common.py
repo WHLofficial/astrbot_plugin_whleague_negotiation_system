@@ -38,6 +38,12 @@ class TestEnv:
         self.db = DatabaseManager(str(Path(self._tmp.name) / "test.db"))
         self.dao = NegotiationDAO(self.db)
         self.cfg = dict(DEFAULT_CONFIG)
+        # 既有测试默认禁用直接失败（阈值取极小数，成功率恒不低于该值）
+        self.cfg["agent_tiers"] = (
+            '{"1":{"threshold":1e-9,"probability":0.3},'
+            '"2":{"threshold":2e-9,"probability":0.5},'
+            '"3":{"threshold":3e-9,"probability":0.7}}'
+        )
         self.limiter = RateLimiter()
         self.service = NegotiationService(self.db, self.dao, self.cfg, self.limiter)
         self.import_service = RosterImportService(self.db, self.dao, self.cfg)

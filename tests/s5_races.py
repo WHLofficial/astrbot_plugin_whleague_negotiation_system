@@ -144,6 +144,24 @@ async def test_double_advance_with_create(env: TestEnv):
         await _assert_no_stranded(env)
 
 
+async def test_reroll_concurrent(env: TestEnv):
+    svc = env.service
+    await svc.close_window_cases()
+    for i in range(3):
+        await env.import_service.import_rows([(f"99{i}", f"R{i}", "")], "admin1")
+    env.cfg["agent_change_probability"] = 1.0
+    state = await env.dao.get_league_state()
+    await asyncio.gather(
+        svc.advance_window("admin1"),
+        svc.advance_window("admin1"),
+        svc.advance_window("admin1"),
+    )
+    state2 = await env.dao.get_league_state()
+    assert state2["window_seq"] == state["window_seq"] + 3
+    rows = await env.db.fetchall("SELECT agent_tier FROM player_roster")
+    assert all(r["agent_tier"] in (1, 2, 3) for r in rows)
+
+
 def run_all():
     async def main():
         env = TestEnv()
@@ -157,8 +175,10 @@ def run_all():
             print("  PASS test_cancel_vs_offer")
             await test_double_advance_with_create(env)
             print("  PASS test_double_advance_with_create")
+            await test_reroll_concurrent(env)
+            print("  PASS test_reroll_concurrent")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 4
+    return 5

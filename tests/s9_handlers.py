@@ -301,6 +301,67 @@ async def test_set_config_persists(env: TestEnv):
     assert "wage_min 不能大于 wage_max" in texts3[0]
 
 
+async def test_player_pending_shows_agent(env: TestEnv):
+    plugin, handler, case = await _setup_player_env(env, team="冒烟队G", qq="93007")
+    await env.db.execute(
+        "UPDATE player_roster SET agent_tier=3 WHERE player_uid='595'"
+    )
+    event = FakeEvent("93007", "待谈判")
+    texts = await _collect(handler.pending_cases(event))
+    assert "经纪人：苛刻" in texts[0]
+
+
+async def test_player_offer_direct_copy(env: TestEnv):
+    from astrbot_plugin_whleague_negotiation_system.config.defaults import DEFAULT_CONFIG
+
+    plugin, handler, case = await _setup_player_env(env, team="冒烟队H", qq="93008")
+    await env.service.start_negotiation(case["case_id"], "93008", 18)
+    env.cfg["agent_tiers"] = DEFAULT_CONFIG["agent_tiers"]
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.1,
+    ):
+        event = FakeEvent("93008", f"报价 {case['case_id']} 0.01")
+        texts = await _collect(handler.offer(event))
+    assert "报价过低" in texts[0]
+    assert "谈判直接失败" in texts[0]
+    assert "结算" in texts[0]
+    event2 = FakeEvent("93008", "我的合同")
+    texts2 = await _collect(handler.my_contracts(event2))
+    assert "报价过低" in texts2[0]
+
+
+async def test_offer_risk_hint(env: TestEnv):
+    from astrbot_plugin_whleague_negotiation_system.config.defaults import DEFAULT_CONFIG
+
+    plugin, handler, case = await _setup_player_env(env, team="冒烟队I", qq="93009")
+    await env.service.start_negotiation(case["case_id"], "93009", 18)
+    env.cfg["agent_tiers"] = DEFAULT_CONFIG["agent_tiers"]
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.99,
+    ):
+        event = FakeEvent("93009", f"报价 {case['case_id']} 0.01")
+        texts = await _collect(handler.offer(event))
+    assert "把握" in texts[0]
+    assert "（报价过低有直接失败风险）" in texts[0]
+
+
+async def test_view_config_masks(env: TestEnv):
+    plugin = FakePlugin(env)
+    handler = AdminHandler(plugin)
+    event = FakeEvent("admin1", "谈判查看配置")
+    texts = await _collect(handler.view_config(event))
+    text = texts[0]
+    assert "agent_tiers = （内部参数，已隐藏）" in text
+    assert "agent_change_probability = （内部参数，已隐藏）" in text
+    assert "wage_param_a = （内部参数，已隐藏）" in text
+    assert "tier_thresholds = （内部参数，已隐藏）" in text
+    assert "0.25,0.6,0.9" not in text
+    assert "0.15" not in text
+    assert any(line.startswith("growth_age = ") for line in text.splitlines())
+
+
 def run_all():
     async def main():
         env = TestEnv()
@@ -338,8 +399,16 @@ def run_all():
             print("  PASS test_close_window_flow")
             await test_set_config_persists(env)
             print("  PASS test_set_config_persists")
+            await test_player_pending_shows_agent(env)
+            print("  PASS test_player_pending_shows_agent")
+            await test_player_offer_direct_copy(env)
+            print("  PASS test_player_offer_direct_copy")
+            await test_offer_risk_hint(env)
+            print("  PASS test_offer_risk_hint")
+            await test_view_config_masks(env)
+            print("  PASS test_view_config_masks")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 16
+    return 20

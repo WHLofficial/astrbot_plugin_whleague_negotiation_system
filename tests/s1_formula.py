@@ -3,6 +3,7 @@ import math
 from astrbot_plugin_whleague_negotiation_system.services.formula import (
     ability_level,
     attempt_expected,
+    direct_fail_check,
     expected_wage,
     rating_level,
     release_fee_bounds,
@@ -153,6 +154,20 @@ def test_success_tier_custom():
     assert "🎉" in success_tier(0.99, t)
 
 
+def test_direct_fail_check():
+    th, pr = 0.25, 0.5
+    assert direct_fail_check(0.3, th, pr, 0.0) is False
+    assert direct_fail_check(0.25, th, pr, 0.0) is False
+    assert direct_fail_check(0.2, th, pr, 0.0) is True
+    assert direct_fail_check(0.2, th, pr, 0.49) is True
+    assert direct_fail_check(0.2, th, pr, 0.5) is False
+    assert direct_fail_check(0.2, th, pr, 0.99) is False
+    assert direct_fail_check(1.0, th, pr, 0.0) is False
+    assert direct_fail_check(0.0, th, pr, 0.0) is True
+    assert direct_fail_check(0.1, 0.35, 0.7, 0.69) is True
+    assert direct_fail_check(0.1, 0.35, 0.7, 0.7) is False
+
+
 def run_all():
     tests = [
         test_rating_level,
@@ -169,6 +184,7 @@ def run_all():
         test_fuzz_1000,
         test_success_tier,
         test_success_tier_custom,
+        test_direct_fail_check,
     ]
     for t in tests:
         t()

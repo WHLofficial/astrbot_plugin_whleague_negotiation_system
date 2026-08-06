@@ -1,9 +1,11 @@
 ﻿"""核心业务流程端到端测试。"""
 
 import asyncio
+from unittest import mock
 
 from .common import TestEnv
 
+from astrbot_plugin_whleague_negotiation_system.config.defaults import DEFAULT_CONFIG
 from astrbot_plugin_whleague_negotiation_system.services.negotiation_service import (
     NegotiationError,
 )
@@ -336,6 +338,162 @@ async def test_self_heal_forced(env: TestEnv):
     assert row is not None and row["source"] == "forced"
 
 
+async def test_direct_fail_settle(env: TestEnv):
+    svc = env.service
+    await svc.create_team("直接队", "admin1")
+    code = await svc.generate_code("直接队", "admin1", hours=1)
+    await svc.bind_team("26001", code["code"], "g1")
+    await env.import_service.import_rows([("901", "Low", "")], "admin1")
+    c = await svc.create_case("901", "直接队", 22, 88, 88, 12, "admin1")
+    await svc.start_negotiation(c["case_id"], "26001", 14)
+    s = await env.dao.get_session_by_case(c["case_id"])
+    base = s["expected_wage"]
+    eff2 = round(base * float(env.cfg["attempt_decay_multiplier"]), 2)
+    await env.db.execute(
+        "UPDATE player_roster SET agent_tier=3 WHERE player_uid='901'"
+    )
+    env.cfg["agent_tiers"] = DEFAULT_CONFIG["agent_tiers"]
+
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        side_effect=[0.99, 0.99],
+    ):
+        r1 = await svc.offer_wage(c["case_id"], "26001", 0.01)
+    assert r1["result"] == "fail"
+    assert r1["risk"] is True
+
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.1,
+    ):
+        r2 = await svc.offer_wage(c["case_id"], "26001", 0.02)
+    assert r2["result"] == "direct"
+    assert r2["attempt_no"] == 2
+    assert r2["wage"] == eff2
+    win = (await env.dao.get_league_state())["window_seq"]
+    contract = (await env.dao.list_contracts(win, None))[0]
+    assert contract["source"] == "direct"
+    assert contract["wage"] == eff2
+    case_row = await env.dao.get_case_by_id(c["case_id"])
+    assert case_row["status"] == "success"
+    sess = await env.dao.get_session_by_case(c["case_id"])
+    assert sess["status"] == "success" and sess["attempt_count"] == 2
+    attempts = await env.dao.count_attempts(s["id"])
+    assert attempts == 2
+
+
+async def test_direct_fail_last_attempt(env: TestEnv):
+    svc = env.service
+    await svc.create_team("末次队", "admin1")
+    code = await svc.generate_code("末次队", "admin1", hours=1)
+    await svc.bind_team("26002", code["code"], "g1")
+    await env.import_service.import_rows([("902", "Last", "")], "admin1")
+    c = await svc.create_case("902", "末次队", 22, 88, 88, 12, "admin1")
+    await svc.start_negotiation(c["case_id"], "26002", 14)
+    s = await env.dao.get_session_by_case(c["case_id"])
+    base = s["expected_wage"]
+    env.cfg["agent_tiers"] = DEFAULT_CONFIG["agent_tiers"]
+
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.99,
+    ):
+        await svc.offer_wage(c["case_id"], "26002", 0.01)
+        await svc.offer_wage(c["case_id"], "26002", 0.02)
+
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.1,
+    ):
+        r3 = await svc.offer_wage(c["case_id"], "26002", 0.03)
+    assert r3["result"] == "direct"
+    assert r3["attempt_no"] == 3
+    assert r3["wage"] == base
+    win = (await env.dao.get_league_state())["window_seq"]
+    contract = (await env.dao.list_contracts(win, None))[0]
+    assert contract["source"] == "direct"
+    assert contract["wage"] == base
+
+
+async def test_reroll_agent_tiers(env: TestEnv):
+    local = TestEnv()
+    await local.setup()
+    try:
+        svc = local.service
+        await local.import_service.import_rows(
+            [("911", "R1", ""), ("912", "R2", ""), ("913", "R3", "")], "admin1"
+        )
+        env = local
+        env.cfg["agent_change_probability"] = 1.0
+        with mock.patch(
+            "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+            return_value=0.1,
+        ), mock.patch(
+            "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.choice",
+            return_value=3,
+        ):
+            await svc.advance_window("admin1")
+        rows = await env.db.fetchall(
+            "SELECT agent_tier FROM player_roster "
+            "WHERE player_uid IN ('911','912','913') ORDER BY id"
+        )
+        assert [r["agent_tier"] for r in rows] == [3, 3, 3]
+
+        env.cfg["agent_change_probability"] = 0.0
+        await svc.advance_window("admin1")
+        rows = await env.db.fetchall(
+            "SELECT agent_tier FROM player_roster "
+            "WHERE player_uid IN ('911','912','913') ORDER BY id"
+        )
+        assert [r["agent_tier"] for r in rows] == [3, 3, 3]
+
+        env.cfg["agent_change_probability"] = 0.5
+        with mock.patch(
+            "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+            side_effect=[0.2, 0.9, 0.2],
+        ), mock.patch(
+            "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.choice",
+            return_value=1,
+        ):
+            await svc.advance_window("admin1")
+        rows = await env.db.fetchall(
+            "SELECT agent_tier FROM player_roster "
+            "WHERE player_uid IN ('911','912','913') ORDER BY id"
+        )
+        assert [r["agent_tier"] for r in rows] == [1, 3, 1]
+    finally:
+        await local.teardown()
+
+
+async def test_runtime_fallback_defaults(env: TestEnv):
+    svc = env.service
+    await svc.create_team("回退队", "admin1")
+    code = await svc.generate_code("回退队", "admin1", hours=1)
+    await svc.bind_team("26003", code["code"], "g1")
+    await env.import_service.import_rows([("903", "Fallback", "")], "admin1")
+    c = await svc.create_case("903", "回退队", 22, 88, 88, 12, "admin1")
+    await svc.start_negotiation(c["case_id"], "26003", 14)
+    s = await env.dao.get_session_by_case(c["case_id"])
+    env.cfg["agent_tiers"] = "garbage-not-json"
+
+    with mock.patch(
+        "astrbot_plugin_whleague_negotiation_system.services.negotiation_service.random.random",
+        return_value=0.1,
+    ):
+        r = await svc.offer_wage(c["case_id"], "26003", 0.01)
+    assert r["result"] == "direct"
+    assert r["wage"] == s["expected_wage"]
+
+    env.cfg["agent_tiers"] = '{"1":{"threshold":0.9,"probability":0.3},"2":{"threshold":0.95,"probability":0.5},"3":{"threshold":0.99,"probability":0.7}}'
+    env.cfg["agent_change_probability"] = 1.0
+    await svc.advance_window("admin1")
+    rows = await env.db.fetchall(
+        "SELECT agent_tier FROM player_roster "
+        "WHERE player_uid='903'"
+    )
+    assert rows[0]["agent_tier"] in (1, 2, 3)
+
+
 def run_all():
     import asyncio
 
@@ -361,9 +519,17 @@ def run_all():
             print("  PASS test_team_member_offer")
             await test_self_heal_forced(env)
             print("  PASS test_self_heal_forced")
+            await test_direct_fail_settle(env)
+            print("  PASS test_direct_fail_settle")
+            await test_direct_fail_last_attempt(env)
+            print("  PASS test_direct_fail_last_attempt")
+            await test_runtime_fallback_defaults(env)
+            print("  PASS test_runtime_fallback_defaults")
+            await test_reroll_agent_tiers(env)
+            print("  PASS test_reroll_agent_tiers")
         finally:
             await env.teardown()
 
     asyncio.run(main())
-    return 9
+    return 13
 
